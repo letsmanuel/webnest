@@ -124,3 +124,8 @@ const PORT = process.env.PORT || 8081;
 app.listen(PORT, () => {
   console.log(`Server running on http://webnest-hosting.vercel.app:${PORT}`);
 }); 
+
+
+app.get('/', (req, res) => {
+  res.send('Server läuft! Willkommen bei Webnest Backend.');
+});
