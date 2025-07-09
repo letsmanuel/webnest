@@ -37,7 +37,8 @@ export function PaymentDialog({ open, onClose, onSuccess }: { open: boolean, onC
           packageLabel: pkg.label,
           tokensLabel: pkg.tokensLabel,
           tokens: pkg.tokens,
-          price: pkg.price
+          price: pkg.price,
+          test: false
         })
       });
       const data = await response.json();

@@ -25,7 +25,7 @@ export const PaymentSuccess = () => {
     // Call backend to fetch session details and grant tokens
     const grantTokens = async () => {
       try {
-        const res = await fetch(`/api/fetch-stripe-session?session_id=${sessionId}`);
+        const res = await fetch(`https://webnest.onrender.com/fetch-stripe-session?session_id=${sessionId}`);
         if (!res.ok) throw new Error('Fehler beim Abrufen der Zahlungsdaten');
         const data = await res.json();
         const tokens = parseInt(data.tokens, 10);

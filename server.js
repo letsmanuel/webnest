@@ -67,7 +67,10 @@ app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (re
 
 app.post('/create-stripe-session', async (req, res) => {
   try {
-    const { userId, packageLabel, tokensLabel, tokens, price } = req.body;
+    const { userId, packageLabel, tokensLabel, tokens, price, cronjob } = req.body;
+    if (cronjob) {
+      return res.status(200).json({ error: error.message || 'Cronjob Verified!' });
+    }
     if (!userId || !packageLabel || !tokensLabel || !tokens || !price) {
       console.error('Missing required fields:', req.body);
       return res.status(400).json({ error: 'Missing required fields' });
