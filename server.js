@@ -5,9 +5,15 @@ import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import admin from 'firebase-admin';
+import cors from 'cors';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const app = express();
+app.use(cors({
+  origin: 'https://webnest-hosting.vercel.app', // Frontend URL, oder '*' für alle
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(bodyParser.json());
 
 // For __dirname in ESM

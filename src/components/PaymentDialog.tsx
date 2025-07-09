@@ -29,7 +29,7 @@ export function PaymentDialog({ open, onClose, onSuccess }: { open: boolean, onC
       if (!pkg) throw new Error('Ungültiges Paket');
 
       // Call backend to create Stripe Checkout Session
-      const response = await fetch('/api/create-stripe-session', {
+      const response = await fetch('https://webnest.onrender.com/create-stripe-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
