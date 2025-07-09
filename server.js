@@ -127,5 +127,5 @@ app.listen(PORT, () => {
 
 
 app.get('/', (req, res) => {
-  res.send('Server läuft! Willkommen bei Webnest Backend.');
+  res.send(`Server läuft! Willkommen bei Webnest Backend. Please reffer to go back to: 365.letsnet.xyz/webnest to use the platform. ID: ${PORT}`);
 });
