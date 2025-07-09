@@ -129,3 +129,14 @@ app.listen(PORT, () => {
 app.get('/', (req, res) => {
   res.send(`Server läuft! Willkommen bei Webnest Backend. Please reffer to go back to: 365.letsnet.xyz/webnest to use the platform. ID: ${PORT}`);
 });
+
+
+app.get('/heartbeat', (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    nodeVersion: process.version,
+    uptimeSeconds: process.uptime().toFixed(0),
+    platform: process.platform,
+  });
+});
