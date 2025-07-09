@@ -34,7 +34,7 @@ const firestore = admin.firestore();
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // Stripe webhook endpoint
-app.post('stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+app.post('/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
   try {
@@ -65,7 +65,7 @@ app.post('stripe-webhook', express.raw({ type: 'application/json' }), async (req
   res.json({ received: true });
 });
 
-app.post('create-stripe-session', async (req, res) => {
+app.post('/create-stripe-session', async (req, res) => {
   try {
     const { userId, packageLabel, tokensLabel, tokens, price } = req.body;
     if (!userId || !packageLabel || !tokensLabel || !tokens || !price) {
@@ -107,11 +107,11 @@ app.post('create-stripe-session', async (req, res) => {
 });
 
 // Catch-all for non-POST requests
-app.all('create-stripe-session', (req, res) => {
+app.all('/create-stripe-session', (req, res) => {
   res.status(405).json({ error: 'Method not allowed' });
 });
 
-app.get('fetch-stripe-session', async (req, res) => {
+app.get('/fetch-stripe-session', async (req, res) => {
   const { session_id } = req.query;
   if (!session_id) {
     return res.status(400).json({ error: 'Missing session_id' });
