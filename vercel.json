@@ -14,6 +14,8 @@
     { "source": "/refferal/:path*", "destination": "/" },
     { "source": "/marketplace/upload/:path*", "destination": "/" },
     { "source": "/marketplace/:path*", "destination": "/" },
+    { "source": "/payment-success/:path*", "destination": "/" },
+    { "source": "/payment-cancel/*", "destination": "/" },
 
 
     { "source": "/(.*)", "destination": "/index.html" }

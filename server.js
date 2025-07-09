@@ -91,8 +91,8 @@ app.post('/create-stripe-session', async (req, res) => {
         },
       ],
       metadata: { userId, tokens, packageLabel },
-      success_url: `http://webnest-hosting.vercel.app:8080/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `http://webnest-hosting.vercel.app:8080/payment-cancel`,
+      success_url: `http://webnest-hosting.vercel.app/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `http://webnest-hosting.vercel.app/payment-cancel`,
       billing_address_collection: 'auto',
       allow_promotion_codes: false,
       custom_text: {
@@ -116,8 +116,10 @@ app.get('/fetch-stripe-session', async (req, res) => {
   if (!session_id) {
     return res.status(400).json({ error: 'Missing session_id' });
   }
+  console.log('Fetching Stripe session for ID:', session_id);
   try {
     const session = await stripe.checkout.sessions.retrieve(session_id);
+    console.log('Stripe session fetched:', session);
     const tokens = session.metadata?.tokens;
     return res.status(200).json({ tokens });
   } catch (err) {
@@ -125,6 +127,7 @@ app.get('/fetch-stripe-session', async (req, res) => {
     return res.status(500).json({ error: 'Failed to fetch session' });
   }
 });
+
 
 const PORT = process.env.PORT || 8081;
 app.listen(PORT, () => {
