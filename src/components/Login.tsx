@@ -1,10 +1,10 @@
-
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { authService } from '@/services/authService';
 import { useToast } from '@/hooks/use-toast';
+import { useLanguage } from '@/hooks/useLanguage';
 import { Chrome, Mail, Lock } from 'lucide-react';
 
 export const Login = () => {
@@ -13,6 +13,7 @@ export const Login = () => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  const { t } = useLanguage();
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,15 +22,15 @@ export const Login = () => {
     try {
       if (isSignUp) {
         await authService.signUpWithEmail(email, password);
-        toast({ title: "Konto erstellt!", description: "Willkommen bei Webnest!" });
+        toast({ title: t('accountCreated'), description: t('welcomeToWebnest') });
       } else {
         await authService.signInWithEmail(email, password);
-        toast({ title: "Angemeldet!", description: "Schön, dich wiederzusehen!" });
+        toast({ title: t('signedIn'), description: t('niceToSeeYou') });
       }
     } catch (error: any) {
       toast({
-        title: "Fehler",
-        description: error.message || "Ein Fehler ist aufgetreten",
+        title: t('error'),
+        description: error.message || t('authError'),
         variant: "destructive"
       });
     } finally {
@@ -41,11 +42,11 @@ export const Login = () => {
     setLoading(true);
     try {
       await authService.signInWithGoogle();
-      toast({ title: "Mit Google angemeldet!", description: "Willkommen bei Webnest!" });
+      toast({ title: t('signedIn'), description: t('welcomeToWebnest') });
     } catch (error: any) {
       toast({
-        title: "Fehler",
-        description: error.message || "Google-Anmeldung fehlgeschlagen",
+        title: t('error'),
+        description: error.message || t('googleSignInError'),
         variant: "destructive"
       });
     } finally {
@@ -60,10 +61,10 @@ export const Login = () => {
       <Card className="w-full max-w-md relative z-10 bg-white/90 backdrop-blur-sm shadow-2xl">
         <CardHeader className="text-center">
           <CardTitle className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            Webnest
+            {t('webnest')}
           </CardTitle>
           <CardDescription className="text-gray-600">
-            {isSignUp ? 'Erstelle dein kostenloses Konto' : 'Melde dich in deinem Konto an'}
+            {isSignUp ? t('createAccount') : t('signInAccount')}
           </CardDescription>
         </CardHeader>
 
@@ -73,7 +74,7 @@ export const Login = () => {
               <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
               <Input
                 type="email"
-                placeholder="E-Mail-Adresse"
+                placeholder={t('emailAddress')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="pl-10"
@@ -85,7 +86,7 @@ export const Login = () => {
               <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
               <Input
                 type="password"
-                placeholder="Passwort"
+                placeholder={t('password')}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-10"
@@ -98,7 +99,7 @@ export const Login = () => {
               className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
               disabled={loading}
             >
-              {loading ? 'Lädt...' : (isSignUp ? 'Registrieren' : 'Anmelden')}
+              {loading ? t('loading') : (isSignUp ? t('register') : t('signIn'))}
             </Button>
           </form>
 
@@ -107,7 +108,7 @@ export const Login = () => {
               <span className="w-full border-t" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-2 text-muted-foreground">oder</span>
+              <span className="bg-white px-2 text-muted-foreground">{t('or')}</span>
             </div>
           </div>
 
@@ -118,7 +119,7 @@ export const Login = () => {
             disabled={loading}
           >
             <Chrome className="mr-2 h-4 w-4" />
-            Mit Google anmelden
+            {t('signInWithGoogle')}
           </Button>
 
           <div className="text-center">
@@ -128,8 +129,8 @@ export const Login = () => {
               className="text-sm text-blue-600 hover:underline"
             >
               {isSignUp 
-                ? 'Bereits ein Konto? Hier anmelden' 
-                : 'Noch kein Konto? Hier registrieren'
+                ? t('alreadyHaveAccount')
+                : t('noAccountYet')
               }
             </button>
           </div>

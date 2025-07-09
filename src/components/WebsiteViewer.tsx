@@ -5,17 +5,26 @@ import { AlertCircle, Globe, Zap, Star, Users, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/hooks/useAuth';
+import { WebsiteBuilder } from './WebsiteBuilder';
+
+const ADMIN_EMAILS = ['luap.palu@gmail.com', 'letsmanuel.service@gmail.com'];
 
 export const WebsiteViewer = () => {
   const { id } = useParams<{ id: string }>();
+  const { user, loading: authLoading } = useAuth();
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [notFound, setNotFound] = useState(false);
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [websiteObj, setWebsiteObj] = useState<any>(null);
 
   useEffect(() => {
+    if (authLoading) return; // Wait for auth to finish
     loadWebsite();
-  }, [id]);
+    // eslint-disable-next-line
+  }, [id, user, authLoading]);
 
   const loadWebsite = async () => {
     console.log('WebsiteViewer: loadWebsite called with id:', id);
@@ -62,17 +71,39 @@ export const WebsiteViewer = () => {
       });
 
       if (!website.isPublished) {
-        setError('Website ist nicht veröffentlicht');
+        if (user && ADMIN_EMAILS.includes(user.email || '')) {
+          // Admin: allow access, show modal
+          if (website.htmlContent) {
+            let decodedHtml = '';
+            try {
+              decodedHtml = decodeURIComponent(escape(atob(website.htmlContent)));
+            } catch (e) {
+              decodedHtml = atob(website.htmlContent);
+            }
+            setHtmlContent(decodedHtml);
+          } else {
+            setError('Kein Inhalt verfügbar');
+          }
+          setShowAdminModal(true);
+        } else {
+          setError('Website ist nicht veröffentlicht');
+        }
         setLoading(false);
         return;
       }
 
       if (website.htmlContent) {
-        const decodedHtml = atob(website.htmlContent);
+        let decodedHtml = '';
+        try {
+          decodedHtml = decodeURIComponent(escape(atob(website.htmlContent)));
+        } catch (e) {
+          decodedHtml = atob(website.htmlContent);
+        }
         setHtmlContent(decodedHtml);
       } else {
         setError('Kein Inhalt verfügbar');
       }
+      setWebsiteObj(website);
     } catch (error) {
       console.error('Error loading website:', error);
       setError('Fehler beim Laden der Website');
@@ -81,7 +112,7 @@ export const WebsiteViewer = () => {
     }
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -170,7 +201,7 @@ export const WebsiteViewer = () => {
                 </div>
                 <div className="bg-white/10 rounded-lg p-6">
                   <h4 className="font-semibold text-lg mb-2">Custom Domain</h4>
-                  <p className="text-3xl font-bold mb-2">5 Tokens</p>
+                  <p className="text-3xl font-bold mb-2">8 Tokens</p>
                   <p className="text-blue-100 text-sm">Eigene URL wie "meine-website"</p>
                 </div>
               </div>
@@ -211,10 +242,59 @@ export const WebsiteViewer = () => {
     );
   }
 
+  // Use htmlContent for published/final output, fallback to elementsJson only if htmlContent is missing
+  if (htmlContent) {
+    return (
+      <>
+        {showAdminModal && (
+          <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+            <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
+              <h2 className="text-xl font-bold mb-2">Admin-Zugriff</h2>
+              <p className="mb-4">Du siehst diese unveröffentlichte Website, weil du Admin-Rechte hast.</p>
+              <button className="bg-blue-600 text-white px-4 py-2 rounded" onClick={() => setShowAdminModal(false)}>Verstanden</button>
+            </div>
+          </div>
+        )}
+        <div
+          className="min-h-screen"
+          dangerouslySetInnerHTML={{ __html: htmlContent }}
+        />
+      </>
+    );
+  }
+
+  // Fallback: try elementsJson if htmlContent is missing
+  if (websiteObj && websiteObj.elementsJson) {
+    let elements = [];
+    try {
+      elements = JSON.parse(websiteObj.elementsJson);
+    } catch (e) {
+      // fallback to nothing
+    }
+    if (elements && elements.length > 0) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100">
+          <div className="text-center text-gray-500 py-20">No published HTML found. (Preview mode)</div>
+        </div>
+      );
+    }
+  }
+
   return (
-    <div
-      className="min-h-screen"
-      dangerouslySetInnerHTML={{ __html: htmlContent }}
-    />
+    <>
+      {showAdminModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
+            <h2 className="text-xl font-bold mb-2">Admin-Zugriff</h2>
+            <p className="mb-4">Du siehst diese unveröffentlichte Website, weil du Admin-Rechte hast.</p>
+            <button className="bg-blue-600 text-white px-4 py-2 rounded" onClick={() => setShowAdminModal(false)}>Verstanden</button>
+          </div>
+        </div>
+      )}
+      <div
+        className="min-h-screen"
+        dangerouslySetInnerHTML={{ __html: htmlContent }}
+      />
+    </>
   );
 };

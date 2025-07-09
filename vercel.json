@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "package.json", "use": "@vercel/static-build" },
+    { "src": "api/**/*.ts", "use": "@vercel/node" }
+  ],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1.ts" },
+
+    { "source": "/view/:path*", "destination": "/" },
+    { "source": "/collaborate/:path*", "destination": "/" },
+    { "source": "/site/:path*", "destination": "/" },
+    { "source": "/refferal/:path*", "destination": "/" },
+    { "source": "/refferal/:path*", "destination": "/" },
+    { "source": "/marketplace/upload/:path*", "destination": "/" },
+    { "source": "/marketplace/:path*", "destination": "/" },
+
+
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

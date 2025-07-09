@@ -5,10 +5,12 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  base: '/webnest/',
   server: {
     host: "::",
     port: 8080,
+    proxy: {
+      '/api': 'http://webnest-hosting.vercel.app:8080',
+    },
   },
   plugins: [
     react(),

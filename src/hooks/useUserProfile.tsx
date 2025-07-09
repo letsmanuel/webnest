@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useAuth } from './useAuth';
 import { userService, UserProfile } from '@/services/userService';
@@ -7,6 +6,7 @@ export const useUserProfile = () => {
   const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [referralClaimCount, setReferralClaimCount] = useState<number>(0);
 
   useEffect(() => {
     loadProfile();
@@ -15,6 +15,7 @@ export const useUserProfile = () => {
   const loadProfile = async () => {
     if (!user) {
       setProfile(null);
+      setReferralClaimCount(0);
       setLoading(false);
       return;
     }
@@ -32,6 +33,9 @@ export const useUserProfile = () => {
       }
       
       setProfile(userProfile);
+      // Fetch referral claim count
+      const count = await userService.getReferralClaimCount(user.uid);
+      setReferralClaimCount(count);
     } catch (error) {
       console.error('Error loading user profile:', error);
     } finally {
@@ -44,7 +48,7 @@ export const useUserProfile = () => {
     
     try {
       await userService.updateUserProfile(user.uid, updates);
-      setProfile({ ...profile, ...updates });
+      await loadProfile();
     } catch (error) {
       console.error('Error updating profile:', error);
     }
@@ -58,6 +62,7 @@ export const useUserProfile = () => {
     profile,
     loading,
     updateProfile,
-    refreshProfile
+    refreshProfile,
+    referralClaimCount
   };
 };

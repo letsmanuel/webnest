@@ -1,7 +1,6 @@
-
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA4POYjU4SleOGZdRuZNRuUn_4KVL3nMgY",
@@ -15,7 +14,9 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true
+});
 export const googleProvider = new GoogleAuthProvider();
 
 googleProvider.addScope('email');
