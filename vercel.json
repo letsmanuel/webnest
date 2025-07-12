@@ -16,8 +16,13 @@
     { "source": "/marketplace/:path*", "destination": "/" },
     { "source": "/payment-success/:path*", "destination": "/" },
     { "source": "/payment-cancel", "destination": "/" },
+    { "source": "/privacy-policy", "destination": "/" },
+    { "source": "/afk", "destination": "/" },
+    { "source": "/admin", "destination": "/" },
+    { "source": "/webnest-api/check-dns", "destination": "/" },
+    { "source": "/developer", "destination": "/" },
+    { "source": "/webnest-api/page-visits", "destination": "/" },
 
-
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/:path*", "destination": "/view/" }
   ]
 }

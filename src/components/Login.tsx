@@ -5,9 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { authService } from '@/services/authService';
 import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/hooks/useLanguage';
-import { Chrome, Mail, Lock } from 'lucide-react';
+import { Chrome, Mail, Lock, ArrowLeft } from 'lucide-react';
 
-export const Login = () => {
+export const Login = ({ onBack }: { onBack?: () => void }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
@@ -55,8 +55,17 @@ export const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-400 via-pink-500 to-red-500 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-400 via-pink-500 to-red-500 p-4 relative">
       <div className="absolute inset-0 bg-black/20"></div>
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="absolute top-6 left-6 z-20 flex items-center bg-white/80 hover:bg-white text-gray-700 rounded-full p-2 shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+      )}
       
       <Card className="w-full max-w-md relative z-10 bg-white/90 backdrop-blur-sm shadow-2xl">
         <CardHeader className="text-center">

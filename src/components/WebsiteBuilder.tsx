@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useLayoutEffect, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { websiteService, Website } from '@/services/websiteService';
 import { userService } from '@/services/userService';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, Eye, Globe, Type, Image, Square, MousePointer, Link, Youtube, Moon, Menu, GripVertical, Code, X, Play, ExternalLink, MessageSquare, AlertCircle, CheckCircle, Users } from 'lucide-react';
+import { ArrowLeft, Save, Eye, Globe, Type, Image, Square, MousePointer, Link, Youtube, Moon, Menu, GripVertical, Code, X, Play, ExternalLink, MessageSquare, AlertCircle, CheckCircle, Users, UploadCloud, Settings as SettingsIcon, Zap, Clock } from 'lucide-react';
 import { ElementProperties } from './ElementProperties';
 import {
   DndContext,
@@ -30,6 +30,9 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import toICO from '2ico';
+import { Timestamp } from 'firebase/firestore';
+import ReactDOM from 'react-dom';
 
 interface Element {
   id: string;
@@ -258,7 +261,10 @@ const SyntaxTextInput = ({
   placeholder, 
   availableVariables = [],
   onMarkVariable,
-  markedVariables = []
+  markedVariables = [],
+  autoFocus,
+  onBlur,
+  onFocus
 }: { 
   value: string; 
   onChange: (value: string) => void; 
@@ -266,6 +272,9 @@ const SyntaxTextInput = ({
   availableVariables?: Array<{value: string, label: string}>;
   onMarkVariable?: (text: string) => void;
   markedVariables?: string[];
+  autoFocus?: boolean;
+  onBlur?: () => void;
+  onFocus?: () => void;
 }) => {
   const [selection, setSelection] = useState<{start: number, end: number} | null>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
@@ -512,11 +521,13 @@ const SyntaxTextInput = ({
         ref={inputRef}
         value={value}
         onChange={handleInputChange}
-        onFocus={handleFocus}
+        onFocus={e => { handleFocus(); if (typeof onFocus === 'function') onFocus(); }}
+        onBlur={e => { if (typeof onBlur === 'function') onBlur(); }}
         onMouseUp={handleMouseUp}
         onContextMenu={handleContextMenu}
         placeholder={placeholder}
         className="h-9"
+        autoFocus={autoFocus}
       />
 
       {/* Syntax preview */}
@@ -557,6 +568,9 @@ const CodeBuilder = ({ isOpen, onClose, onSave, initialCode, availableInputs = [
   const [blocks, setBlocks] = useState<CodeBlockInstance[]>([]);
   const [draggedBlock, setDraggedBlock] = useState<CodeBlock | null>(null);
   const [editingBlock, setEditingBlock] = useState<string | null>(null);
+  // In CodeBuilder, for each block's text input param, make the input autoFocus if it is the most recently added or currently being edited.
+  // Add a state to track the currently focused param for each block
+  const [focusedParam, setFocusedParam] = useState<{ blockId: string, paramName: string } | null>(null);
 
   // Parse initial code when component mounts
   useEffect(() => {
@@ -953,6 +967,13 @@ const CodeBuilder = ({ isOpen, onClose, onSave, initialCode, availableInputs = [
                            );
                          }
                        }, [block.id, block.markedVariables, param.name])}
+                       autoFocus={focusedParam && focusedParam.blockId === block.id && focusedParam.paramName === param.name}
+                       onBlur={() => setFocusedParam(null)}
+                       onFocus={() => {
+                         if (!focusedParam || focusedParam.blockId !== block.id || focusedParam.paramName !== param.name) {
+                           setFocusedParam({ blockId: block.id, paramName: param.name });
+                         }
+                       }}
                      />
                      {/* Show variable buttons for quick insertion */}
                      {(blockDef.type === 'alert' || blockDef.type === 'console' || blockDef.type === 'set-variable' || blockDef.type === 'custom') && (
@@ -1168,7 +1189,12 @@ function renderElementContent(element: Element) {
       return (
         <div className={getAnimationClass(element)}>
           <p className="p-2 mb-4 cursor-pointer" style={{ fontSize: `${element.fontSize}px`, fontFamily: element.fontFamily || undefined, color: element.color }}>
-            {element.content || 'Text'}
+            {(element.content || 'Text').split('\n').map((line, i) => (
+              <span key={i}>
+                {line}
+                {i < (element.content || 'Text').split('\n').length - 1 && <br />}
+              </span>
+            ))}
           </p>
         </div>
       );
@@ -1178,7 +1204,12 @@ function renderElementContent(element: Element) {
           className="px-4 py-2 rounded mb-4 text-foreground font-medium cursor-pointer"
           style={{ backgroundColor: element.backgroundColor, fontFamily: element.fontFamily || undefined, ...scalableStyle(element) }}
         >
-          {element.text || 'Button'}
+          {(element.text || 'Button').split('\n').map((line, i) => (
+            <span key={i}>
+              {line}
+              {i < (element.text || 'Button').split('\n').length - 1 && <br />}
+            </span>
+          ))}
         </button></div>
       );
     case 'image':
@@ -1286,11 +1317,67 @@ export const WebsiteBuilder = ({
   const [codeBuilderInitialCode, setCodeBuilderInitialCode] = useState<string>('');
   const [customCodeSaveHandler, setCustomCodeSaveHandler] = useState<((code: string) => void) | null>(null);
   const { toast } = useToast();
-  const [editorHeight, setEditorHeight] = useState(800);
+  const [editorHeight, setEditorHeight] = useState(1200);
   // At the top level of WebsiteBuilder (with other useState hooks):
   const [resizing, setResizing] = useState<string | null>(null);
   const [resizeStart, setResizeStart] = useState<{id: string, startX: number, startY: number, startWidth: number, startHeight: number} | null>(null);
   const [editorLoading, setEditorLoading] = useState(true);
+  // Add at the top level of WebsiteBuilder (with other useState hooks):
+  const [faviconUploading, setFaviconUploading] = useState(false);
+  const [faviconError, setFaviconError] = useState<string | null>(null);
+  const [faviconUsedFree, setFaviconUsedFree] = useState(!!website.favicon); // If favicon exists, free upload is used
+  const [faviconModalOpen, setFaviconModalOpen] = useState(false);
+  const [faviconGridAnim, setFaviconGridAnim] = useState<number[]>([]);
+  const [faviconPreview, setFaviconPreview] = useState<string | null>(website.favicon ? `data:image/x-icon;base64,${website.favicon}` : null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showRevokeDialog, setShowRevokeDialog] = useState(false);
+  const [revokingInstant, setRevokingInstant] = useState(false);
+  const [revokingDelayed, setRevokingDelayed] = useState(false);
+  const [undoingUnpublish, setUndoingUnpublish] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [analytics, setAnalytics] = useState<{ totalVisits: number; lastVisit: Date | null }>({ totalVisits: 0, lastVisit: null });
+  const [backgroundColor, setBackgroundColor] = useState<string>(website.backgroundColor || '#ffffff');
+  const editorRef = useRef<HTMLDivElement>(null);
+  // At the top level of WebsiteBuilder (with other useState hooks):
+  const [alignmentGuides, setAlignmentGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
+  const SNAP_THRESHOLD = 8; // px
+  // Add at the top level of WebsiteBuilder (with other useState hooks):
+  const [snappedGuides, setSnappedGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
+  const [snappedPosition, setSnappedPosition] = useState<{ x: number; y: number } | null>(null);
+  // Add at the top level of WebsiteBuilder (with other useState hooks):
+  const [advancedSnapping, setAdvancedSnapping] = useState(false);
+  // Add at the top level of WebsiteBuilder (with other useState hooks):
+  const [showSnappingGuides, setShowSnappingGuides] = useState(true);
+  // Add at the top level of WebsiteBuilder (with other useState hooks):
+  const dragHoldTimeout = useRef<NodeJS.Timeout | null>(null);
+  const [readyToDrag, setReadyToDrag] = useState(false);
+  const dragStartPos = useRef<{ x: number; y: number } | null>(null);
+  const DRAG_THRESHOLD = 5; // px
+  // In WebsiteBuilder, add state for quick properties popup:
+  const [showQuickProps, setShowQuickProps] = useState(false);
+  // Add at the top level of WebsiteBuilder (with other useState hooks):
+  const [inlineTextEdit, setInlineTextEdit] = useState<{ id: string; value: string; field: string } | null>(null);
+  // Add this at the top level of the WebsiteBuilder component
+  const isOwner = true; // TODO: Replace with real ownership logic if available
+
+  // Animation for favicon conversion
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (faviconUploading) {
+      interval = setInterval(() => {
+        // Animate 1-3 random chunks out of 16
+        const count = Math.floor(Math.random() * 3) + 1;
+        const indices = Array.from({ length: 16 }, (_, i) => i);
+        const shuffled = indices.sort(() => 0.5 - Math.random());
+        setFaviconGridAnim(shuffled.slice(0, count));
+      }, 350);
+    } else {
+      setFaviconGridAnim([]);
+    }
+    return () => clearInterval(interval);
+  }, [faviconUploading]);
 
   // Drag and Drop sensors
   const sensors = useSensors(
@@ -1480,12 +1567,19 @@ export const WebsiteBuilder = ({
     try {
       const width = editorRef.current?.offsetWidth || 1200;
       const height = editorHeight;
-      const htmlContent = websiteService.generateHTML(elements.map(el => ({
-        ...el,
-        x: ((el.xPx ?? 0) / width) * 100,
-        y: ((el.yPx ?? 0) / height) * 100,
-        editorHeight: height
-      })));
+      // Always set editorHeight on the first element for correct publish scaling
+      const elementsWithHeight = elements.length > 0 ? [
+        { ...elements[0], editorHeight: height },
+        ...elements.slice(1)
+      ] : [];
+      const htmlContent = websiteService.generateHTML(
+        elementsWithHeight.map(el => ({
+          ...el,
+          x: ((el.xPx ?? 0) / width) * 100,
+          y: ((el.yPx ?? 0) / height) * 100,
+        })),
+        backgroundColor
+      );
       
       // If website was already published, auto-publish after save
       if (website.isPublished) {
@@ -1550,12 +1644,19 @@ export const WebsiteBuilder = ({
     try {
       const width = editorRef.current?.offsetWidth || 1200;
       const height = editorHeight;
-      const htmlContent = websiteService.generateHTML(elements.map(el => ({
-        ...el,
-        x: ((el.xPx ?? 0) / width) * 100,
-        y: ((el.yPx ?? 0) / height) * 100,
-        editorHeight: height
-      })));
+      // Always set editorHeight on the first element for correct publish scaling
+      const elementsWithHeight = elements.length > 0 ? [
+        { ...elements[0], editorHeight: height },
+        ...elements.slice(1)
+      ] : [];
+      const htmlContent = websiteService.generateHTML(
+        elementsWithHeight.map(el => ({
+          ...el,
+          x: ((el.xPx ?? 0) / width) * 100,
+          y: ((el.yPx ?? 0) / height) * 100,
+        })),
+        backgroundColor
+      );
       
       if (publishType === 'custom' && (customPath.trim() || existingCustomPath)) {
         const pathToUse = customPath.trim() || existingCustomPath!;
@@ -1662,57 +1763,203 @@ export const WebsiteBuilder = ({
   const [draggingElementId, setDraggingElementId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{x: number, y: number}>({x: 0, y: 0});
   const [tempDragPosition, setTempDragPosition] = useState<{ id: string, x: number, y: number } | null>(null);
-  const editorRef = useRef<HTMLDivElement>(null);
 
   // Mouse drag events
   useEffect(() => {
-    if (!draggingElementId) return;
+    if (!draggingElementId && !readyToDrag) return;
     const handleMouseMove = (e: MouseEvent) => {
+      // If not readyToDrag, check threshold
+      if (!readyToDrag && dragStartPos.current) {
+        const dx = e.clientX - dragStartPos.current.x;
+        const dy = e.clientY - dragStartPos.current.y;
+        if (Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+          if (dragHoldTimeout.current) {
+            clearTimeout(dragHoldTimeout.current);
+            dragHoldTimeout.current = null;
+          }
+          setDraggingElementId(selectedElement?.id || null);
+          setDragOffset({ x: 0, y: 0 });
+          setReadyToDrag(true);
+          document.body.style.userSelect = 'none';
+        } else {
+          return;
+        }
+      }
+      if (!draggingElementId) return;
       const element = elements.find(el => el.id === draggingElementId);
       if (!element || !editorRef.current) return;
       const rect = editorRef.current.getBoundingClientRect();
       // Calculate new center position
-      const centerX = e.clientX - rect.left;
-      const centerY = e.clientY - rect.top;
-      // Optionally, you can show a preview by updating a temp state, but do not update the element's position here
-      setTempDragPosition({ id: element.id, x: centerX, y: centerY });
+      let centerX = e.clientX - rect.left;
+      let centerY = e.clientY - rect.top;
+      // --- Snapping logic ---
+      const elNode = document.querySelector(`[data-element-id='${element.id}']`) as HTMLElement | null;
+      const elWidth = elNode?.offsetWidth || 100;
+      const elHeight = elNode?.offsetHeight || 40;
+      const dragBox = {
+        left: centerX - elWidth / 2,
+        right: centerX + elWidth / 2,
+        top: centerY - elHeight / 2,
+        bottom: centerY + elHeight / 2,
+        centerX: centerX,
+        centerY: centerY,
+        width: elWidth,
+        height: elHeight,
+      };
+      const editorWidth = editorRef.current.offsetWidth;
+      const editorCenterX = editorWidth / 2;
+      const editorCenterY = editorHeight / 2;
+      const xLines: number[] = [editorCenterX];
+      const yLines: number[] = [editorCenterY];
+      // For advanced spacing snap
+      let spacingXSnapLines: number[] = [];
+      let spacingYSnapLines: number[] = [];
+      let spacingXSnaps: Array<{line: number, spacing: number}> = [];
+      let spacingYSnaps: Array<{line: number, spacing: number}> = [];
+      // Collect all element edges
+      const elementEdges = elements.filter(el => el.id !== element.id).map(el => {
+        const node = document.querySelector(`[data-element-id='${el.id}']`) as HTMLElement | null;
+        const w = node?.offsetWidth || 100;
+        const h = node?.offsetHeight || 40;
+        const x = el.xPx ?? 0;
+        const y = el.yPx ?? 0;
+        return {
+          id: el.id,
+          left: x,
+          right: x + w,
+          top: y,
+          bottom: y + h,
+          centerX: x + w / 2,
+          centerY: y + h / 2,
+          width: w,
+          height: h,
+        };
+      });
+      // Standard edge/center lines
+      elementEdges.forEach(edge => {
+        xLines.push(edge.left, edge.right, edge.centerX);
+        yLines.push(edge.top, edge.bottom, edge.centerY);
+      });
+      // Advanced spacing snap logic
+      if (advancedSnapping) {
+        // For each pair of elements, record their horizontal and vertical spacing
+        let xSpacings: number[] = [];
+        let ySpacings: number[] = [];
+        for (let i = 0; i < elementEdges.length; i++) {
+          for (let j = i + 1; j < elementEdges.length; j++) {
+            // Horizontal spacing (between right of one and left of another)
+            const spacingRtoL = Math.abs(elementEdges[i].right - elementEdges[j].left);
+            const spacingLtoR = Math.abs(elementEdges[i].left - elementEdges[j].right);
+            if (spacingRtoL > 0) xSpacings.push(spacingRtoL);
+            if (spacingLtoR > 0) xSpacings.push(spacingLtoR);
+            // Vertical spacing (between bottom of one and top of another)
+            const spacingBtoT = Math.abs(elementEdges[i].bottom - elementEdges[j].top);
+            const spacingTtoB = Math.abs(elementEdges[i].top - elementEdges[j].bottom);
+            if (spacingBtoT > 0) ySpacings.push(spacingBtoT);
+            if (spacingTtoB > 0) ySpacings.push(spacingTtoB);
+          }
+        }
+        // Remove duplicates and keep only reasonable spacings
+        xSpacings = Array.from(new Set(xSpacings.filter(s => s > 0 && s < 500)));
+        ySpacings = Array.from(new Set(ySpacings.filter(s => s > 0 && s < 500)));
+        // For each other element, add snap lines at those spacings
+        elementEdges.forEach(edge => {
+          xSpacings.forEach(spacing => {
+            // Snap left edge to right edge + spacing
+            spacingXSnapLines.push(edge.right + spacing);
+            // Snap right edge to left edge - spacing
+            spacingXSnapLines.push(edge.left - spacing);
+          });
+          ySpacings.forEach(spacing => {
+            // Snap top edge to bottom edge + spacing
+            spacingYSnapLines.push(edge.bottom + spacing);
+            // Snap bottom edge to top edge - spacing
+            spacingYSnapLines.push(edge.top - spacing);
+          });
+        });
+      }
+      // Snap X
+      let snappedX: number[] = [];
+      let snapX = centerX;
+      [...xLines, ...spacingXSnapLines].forEach(line => {
+        if (Math.abs(dragBox.left - line) < SNAP_THRESHOLD) {
+          snapX = line + elWidth / 2;
+          snappedX.push(line);
+        }
+        if (Math.abs(dragBox.right - line) < SNAP_THRESHOLD) {
+          snapX = line - elWidth / 2;
+          snappedX.push(line);
+        }
+        if (Math.abs(dragBox.centerX - line) < SNAP_THRESHOLD) {
+          snapX = line;
+          snappedX.push(line);
+        }
+      });
+      // Snap Y
+      let snappedY: number[] = [];
+      let snapY = centerY;
+      [...yLines, ...spacingYSnapLines].forEach(line => {
+        if (Math.abs(dragBox.top - line) < SNAP_THRESHOLD) {
+          snapY = line + elHeight / 2;
+          snappedY.push(line);
+        }
+        if (Math.abs(dragBox.bottom - line) < SNAP_THRESHOLD) {
+          snapY = line - elHeight / 2;
+          snappedY.push(line);
+        }
+        if (Math.abs(dragBox.centerY - line) < SNAP_THRESHOLD) {
+          snapY = line;
+          snappedY.push(line);
+        }
+      });
+      setTempDragPosition({ id: element.id, x: snapX, y: snapY });
+      setSnappedGuides({ x: snappedX, y: snappedY });
+      setSnappedPosition({ x: snapX, y: snapY });
     };
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, [draggingElementId, elements]);
+  }, [draggingElementId, elements, editorHeight, advancedSnapping, readyToDrag, selectedElement]);
 
-  // On mouse up, update the element's position so its center is at the last cursor position
+  // On mouse up, update the element's position so its center is at the last snapped position
   useEffect(() => {
     if (!draggingElementId) return;
     const handleMouseUp = (e: MouseEvent) => {
       const element = elements.find(el => el.id === draggingElementId);
       if (!element || !editorRef.current) return;
-      if (element.type === 'topbar') {
-        // Only allow horizontal movement, force yPx = 0 and width = 100%
-        const rect = editorRef.current.getBoundingClientRect();
-        const centerX = e.clientX - rect.left;
-        const elNode = document.querySelector(`[data-element-id='${element.id}']`) as HTMLElement | null;
-        const elWidth = elNode?.offsetWidth || 100;
-        const newX = centerX - elWidth / 2;
-        updateElement(element.id, { xPx: newX, yPx: 0 });
+      const elNode = document.querySelector(`[data-element-id='${element.id}']`) as HTMLElement | null;
+      const elWidth = elNode?.offsetWidth || 100;
+      const elHeight = elNode?.offsetHeight || 40;
+      let newX, newY;
+      if (snappedPosition) {
+        newX = snappedPosition.x - elWidth / 2;
+        newY = snappedPosition.y - elHeight / 2;
       } else {
         const rect = editorRef.current.getBoundingClientRect();
         const centerX = e.clientX - rect.left;
         const centerY = e.clientY - rect.top;
-        const elNode = document.querySelector(`[data-element-id='${element.id}']`) as HTMLElement | null;
-        const elWidth = elNode?.offsetWidth || 100;
-        const elHeight = elNode?.offsetHeight || 40;
-        const newX = centerX - elWidth / 2;
-        const newY = centerY - elHeight / 2;
+        newX = centerX - elWidth / 2;
+        newY = centerY - elHeight / 2;
+      }
+      if (element.type === 'topbar') {
+        updateElement(element.id, { xPx: newX, yPx: 0 });
+      } else {
         updateElement(element.id, { xPx: newX, yPx: newY });
       }
       setDraggingElementId(null);
       setTempDragPosition(null);
+      setSnappedGuides({ x: [], y: [] });
+      setSnappedPosition(null);
       document.body.style.userSelect = '';
+      if (dragHoldTimeout.current) {
+        clearTimeout(dragHoldTimeout.current);
+        dragHoldTimeout.current = null;
+      }
+      setReadyToDrag(false);
+      dragStartPos.current = null;
     };
     window.addEventListener('mouseup', handleMouseUp);
     return () => window.removeEventListener('mouseup', handleMouseUp);
-  }, [draggingElementId, elements]);
+  }, [draggingElementId, elements, snappedPosition, updateElement]);
 
   // Add this useEffect to handle resizing
   useEffect(() => {
@@ -1752,9 +1999,43 @@ export const WebsiteBuilder = ({
     const handleMouseDown = (e: React.MouseEvent) => {
       e.stopPropagation();
       if (!editorRef.current) return;
-      setDraggingElementId(element.id);
-      setDragOffset({ x: 0, y: 0 }); // No offset, center will follow cursor
-      document.body.style.userSelect = 'none';
+      if (selectedElement?.id !== element.id) {
+        setSelectedElement(element);
+        // Show snap lines at the element's current position
+        const x = element.xPx ?? 0;
+        const y = element.yPx ?? 0;
+        const elNode = document.querySelector(`[data-element-id='${element.id}']`) as HTMLElement | null;
+        const w = elNode?.offsetWidth || 100;
+        const h = elNode?.offsetHeight || 40;
+        const centerX = x + w / 2;
+        const centerY = y + h / 2;
+        setAlignmentGuides({ x: [x, x + w, centerX], y: [y, y + h, centerY] });
+        setSnappedGuides({ x: [centerX], y: [centerY] });
+        setReadyToDrag(false);
+        dragStartPos.current = null;
+        return;
+      }
+      // If already selected, start drag after hold or threshold
+      dragStartPos.current = { x: e.clientX, y: e.clientY };
+      dragHoldTimeout.current = setTimeout(() => {
+        startDrag(element.id);
+      }, 120);
+    };
+    const handleMouseUp = () => {
+      if (dragHoldTimeout.current) {
+        clearTimeout(dragHoldTimeout.current);
+        dragHoldTimeout.current = null;
+      }
+      setReadyToDrag(false);
+      dragStartPos.current = null;
+    };
+    const handleMouseLeave = () => {
+      if (dragHoldTimeout.current) {
+        clearTimeout(dragHoldTimeout.current);
+        dragHoldTimeout.current = null;
+      }
+      setReadyToDrag(false);
+      dragStartPos.current = null;
     };
     const handleTouchStart = (e: React.TouchEvent) => {
       e.stopPropagation();
@@ -1783,12 +2064,84 @@ export const WebsiteBuilder = ({
         key={element.id}
         style={style}
         onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
         onTouchStart={handleTouchStart}
-        onClick={() => setSelectedElement(element)}
+        onClick={e => {
+          setSelectedElement(element);
+          // Show snap lines at the element's current position
+          const x = element.xPx ?? 0;
+          const y = element.yPx ?? 0;
+          const elNode = document.querySelector(`[data-element-id='${element.id}']`) as HTMLElement | null;
+          const w = elNode?.offsetWidth || 100;
+          const h = elNode?.offsetHeight || 40;
+          const centerX = x + w / 2;
+          const centerY = y + h / 2;
+          setAlignmentGuides({ x: [x, x + w, centerX], y: [y, y + h, centerY] });
+          setSnappedGuides({ x: [centerX], y: [centerY] });
+          setShowQuickProps(true);
+        }}
+        onDoubleClick={e => {
+          if (element.type === 'text') {
+            setInlineTextEdit({ id: element.id, value: element.content || '', field: 'content' });
+            setShowQuickProps(false);
+          } else if (element.type === 'button') {
+            setInlineTextEdit({ id: element.id, value: element.text || '', field: 'text' });
+            setShowQuickProps(false);
+          }
+        }}
         className={`webnest-draggable ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
         data-element-id={element.id}
       >
         {renderElementContent(element)}
+        {/* Inline text edit for double click (text and button) */}
+        {inlineTextEdit && inlineTextEdit.id === element.id && (
+          <div
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              zIndex: 20001,
+              background: 'white',
+              border: '1px solid #e5e7eb',
+              borderRadius: 8,
+              boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
+              padding: 12,
+              minWidth: 180,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <label htmlFor={`inline-text-edit-${element.id}`} style={{ fontSize: 12, marginRight: 8 }}>{inlineTextEdit.field === 'content' ? 'Text:' : 'Button Text:'}</label>
+            <textarea
+              id={`inline-text-edit-${element.id}`}
+              value={inlineTextEdit.value}
+              autoFocus
+              style={{ flex: 1, fontSize: 14, padding: '4px 8px', border: '1px solid #ccc', borderRadius: 4, minHeight: 40, resize: 'vertical' }}
+              onChange={e => setInlineTextEdit({ ...inlineTextEdit, value: e.target.value })}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  updateElement(element.id, { [inlineTextEdit.field]: inlineTextEdit.value });
+                  setInlineTextEdit(null);
+                  e.preventDefault();
+                } else if (e.key === 'Escape') {
+                  setInlineTextEdit(null);
+                }
+              }}
+            />
+            <button
+              type="button"
+              style={{ fontSize: 13, padding: '4px 10px', borderRadius: 4, border: '1px solid #bbb', background: '#f3f4f6', cursor: 'pointer' }}
+              onClick={() => {
+                updateElement(element.id, { [inlineTextEdit.field]: inlineTextEdit.value });
+                setInlineTextEdit(null);
+              }}
+            >
+              Done
+            </button>
+          </div>
+        )}
         {/* Resize handle for scalable elements */}
         {isScalable && isSelected && (
           <div
@@ -1841,6 +2194,508 @@ export const WebsiteBuilder = ({
     }
   }, [elements]);
 
+  const handleFaviconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFaviconError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setFaviconError('Nur Bilddateien sind erlaubt.');
+      return;
+    }
+    // Validate image size and squareness
+    const img = new window.Image();
+    img.onload = async () => {
+      if (img.width !== img.height) {
+        setFaviconError('Das Bild muss quadratisch sein.');
+        return;
+      }
+      if (img.width > 128 || img.height > 128) {
+        setFaviconError('Maximale Größe: 128x128 Pixel.');
+        return;
+      }
+      setFaviconUploading(true);
+      setFaviconModalOpen(true);
+      try {
+        // Draw to canvas 32x32
+        const canvas = document.createElement('canvas');
+        canvas.width = 32;
+        canvas.height = 32;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas nicht unterstützt');
+        ctx.drawImage(img, 0, 0, 32, 32);
+        // Convert to .ico using 2ico
+        const icoDataUrl = toICO(canvas, [32]);
+        // Extract base64
+        const base64 = icoDataUrl.split(',')[1];
+        // Fix: fallback for FAVICON_UPLOAD token cost and avoid redeclaration
+        const tokenCost = (userService.TOKEN_COSTS as any).FAVICON_UPLOAD ?? 1;
+        if (!faviconUsedFree) {
+          const tokenSuccess = await userService.deductTokens(website.userId, tokenCost, 'Favicon upload', website.id);
+          if (!tokenSuccess) {
+            setFaviconError('Nicht genügend Tokens für Favicon-Upload.');
+            setFaviconUploading(false);
+            setFaviconModalOpen(false);
+            return;
+          }
+        }
+        // Save favicon to website
+        await websiteService.updateWebsite(website.id!, { favicon: base64 });
+        setFaviconUsedFree(true);
+        setFaviconPreview(`data:image/x-icon;base64,${base64}`);
+        toast({ title: 'Favicon aktualisiert!', description: 'Das Favicon wurde erfolgreich gespeichert.' });
+      } catch (err: any) {
+        setFaviconError('Fehler beim Konvertieren oder Speichern des Favicons.');
+      } finally {
+        setFaviconUploading(false);
+        setTimeout(() => setFaviconModalOpen(false), 900); // Let animation finish
+      }
+    };
+    img.onerror = () => setFaviconError('Fehler beim Laden des Bildes.');
+    img.src = URL.createObjectURL(file);
+  };
+
+  const handleUndoUnpublish = async () => {
+    setUndoingUnpublish(true);
+    try {
+      await websiteService.undoUnpublish(website.id!, website.userId);
+      toast({ title: 'Unpublish rückgängig gemacht!', description: 'Die Veröffentlichung wurde erfolgreich rückgängig gemacht.' });
+      setShowRevokeDialog(false);
+    } catch (error) {
+      toast({ title: 'Fehler beim Rückgängig machen', description: error instanceof Error ? error.message : 'Es gab einen Fehler beim Rückgängig machen.' });
+    } finally {
+      setUndoingUnpublish(false);
+    }
+  };
+
+  const handleInstantUnpublish = async () => {
+    setRevokingInstant(true);
+    try {
+      await websiteService.unpublishWebsite(website.id!, true);
+      toast({ title: 'Veröffentlichung aufgehoben!', description: 'Die Veröffentlichung wurde erfolgreich aufgehoben.' });
+      setShowRevokeDialog(false);
+      setTimeout(() => window.location.reload(), 500);
+    } catch (error) {
+      toast({ title: 'Fehler beim Aufheben', description: error instanceof Error ? error.message : 'Es gab einen Fehler beim Aufheben.' });
+    } finally {
+      setRevokingInstant(false);
+    }
+  };
+
+  const handleDelayedUnpublish = async () => {
+    setRevokingDelayed(true);
+    try {
+      await websiteService.scheduleUnpublish(website.id!, 2 * 60 * 60 * 1000); // 2 hours in milliseconds
+      toast({ title: 'Unpublish geplant!', description: 'Die Veröffentlichung wird in 2 Stunden aufgehoben.' });
+      setShowRevokeDialog(false);
+      setTimeout(() => window.location.reload(), 500);
+    } catch (error) {
+      toast({ title: 'Fehler beim Planen', description: error instanceof Error ? error.message : 'Es gab einen Fehler beim Planen.' });
+    } finally {
+      setRevokingDelayed(false);
+    }
+  };
+
+  const handleRename = async () => {
+    setRenaming(true);
+    try {
+      await websiteService.renameWebsite(website.id!, renameValue, website.userId);
+      toast({ title: 'Website umbenannt!', description: 'Die Website wurde erfolgreich umbenannt.' });
+      setRenameValue('');
+      setRenaming(false);
+      setRenameError(null);
+    } catch (error) {
+      toast({ title: 'Fehler beim Umbenennen', description: error instanceof Error ? error.message : 'Es gab einen Fehler beim Umbenennen.' });
+      setRenameError(error instanceof Error ? error.message : 'Es gab einen unbekannten Fehler.');
+      setRenaming(false);
+    }
+  };
+
+  // Fetch analytics when settings dialog opens
+  useEffect(() => {
+    if (settingsOpen) {
+      let totalVisits = 0;
+      if (typeof website.totalVisits === 'number') {
+        totalVisits = website.totalVisits;
+      } else if (typeof website.totalVisits === 'string') {
+        const parsed = parseInt(website.totalVisits, 10);
+        totalVisits = Number.isNaN(parsed) ? 0 : parsed;
+      } else {
+        totalVisits = 0;
+      }
+      let lastVisit: Date | null = null;
+      if (website.lastVisit) {
+        if (website.lastVisit instanceof Date) {
+          lastVisit = website.lastVisit;
+        } else if (typeof website.lastVisit === 'string' || typeof website.lastVisit === 'number') {
+          const d = new Date(website.lastVisit);
+          lastVisit = isNaN(d.getTime()) ? null : d;
+        }
+      }
+      setAnalytics({ totalVisits, lastVisit });
+      setRenameValue(website.name || '');
+    }
+  }, [settingsOpen, website]);
+
+  // Update backgroundColor in Firestore and local state
+  const handleBackgroundColorChange = async (color: string) => {
+    setBackgroundColor(color);
+    if (website.id) {
+      await websiteService.updateWebsite(website.id, { backgroundColor: color });
+    }
+  };
+
+  // Alignment guides useEffect: only set guides
+  useEffect(() => {
+    if (!draggingElementId || !tempDragPosition || !editorRef.current) {
+      setAlignmentGuides({ x: [], y: [] });
+      return;
+    }
+    const dragged = elements.find(el => el.id === draggingElementId);
+    if (!dragged) {
+      setAlignmentGuides({ x: [], y: [] });
+      return;
+    }
+    const rect = editorRef.current.getBoundingClientRect();
+    const elNode = document.querySelector(`[data-element-id='${dragged.id}']`) as HTMLElement | null;
+    const elWidth = elNode?.offsetWidth || 100;
+    const elHeight = elNode?.offsetHeight || 40;
+    const dragBox = {
+      left: tempDragPosition.x - elWidth / 2,
+      right: tempDragPosition.x + elWidth / 2,
+      top: tempDragPosition.y - elHeight / 2,
+      bottom: tempDragPosition.y + elHeight / 2,
+      centerX: tempDragPosition.x,
+      centerY: tempDragPosition.y,
+      width: elWidth,
+      height: elHeight,
+    };
+    // Editor center lines
+    const editorWidth = editorRef.current.offsetWidth;
+    const editorCenterX = editorWidth / 2;
+    const editorCenterY = editorHeight / 2;
+    // Collect all possible snap lines from other elements
+    const xLines: number[] = [editorCenterX];
+    const yLines: number[] = [editorCenterY];
+    elements.forEach(el => {
+      if (el.id === dragged.id) return;
+      const node = document.querySelector(`[data-element-id='${el.id}']`) as HTMLElement | null;
+      const w = node?.offsetWidth || 100;
+      const h = node?.offsetHeight || 40;
+      const x = el.xPx ?? 0;
+      const y = el.yPx ?? 0;
+      xLines.push(x); // left
+      xLines.push(x + w); // right
+      xLines.push(x + w / 2); // center
+      yLines.push(y); // top
+      yLines.push(y + h); // bottom
+      yLines.push(y + h / 2); // center
+    });
+    // Also add dragged element's own lines for self-snapping to center
+    xLines.push(dragBox.left); xLines.push(dragBox.right); xLines.push(dragBox.centerX);
+    yLines.push(dragBox.top); yLines.push(dragBox.bottom); yLines.push(dragBox.centerY);
+    // Find closest snap lines
+    let showXGuides: number[] = [];
+    let showYGuides: number[] = [];
+    // For X (vertical guides)
+    for (const line of xLines) {
+      if (Math.abs(dragBox.left - line) < SNAP_THRESHOLD) {
+        showXGuides.push(line);
+      }
+      if (Math.abs(dragBox.right - line) < SNAP_THRESHOLD) {
+        showXGuides.push(line);
+      }
+      if (Math.abs(dragBox.centerX - line) < SNAP_THRESHOLD) {
+        showXGuides.push(line);
+      }
+    }
+    // For Y (horizontal guides)
+    for (const line of yLines) {
+      if (Math.abs(dragBox.top - line) < SNAP_THRESHOLD) {
+        showYGuides.push(line);
+      }
+      if (Math.abs(dragBox.bottom - line) < SNAP_THRESHOLD) {
+        showYGuides.push(line);
+      }
+      if (Math.abs(dragBox.centerY - line) < SNAP_THRESHOLD) {
+        showYGuides.push(line);
+      }
+    }
+    setAlignmentGuides({ x: Array.from(new Set(showXGuides)), y: Array.from(new Set(showYGuides)) });
+  }, [draggingElementId, tempDragPosition, elements, editorHeight]);
+
+  // Centralized drag start function
+  const startDrag = (elementId: string) => {
+    setDraggingElementId(elementId);
+    setDragOffset({ x: 0, y: 0 });
+    setReadyToDrag(true);
+    document.body.style.userSelect = 'none';
+    if (dragHoldTimeout.current) {
+      clearTimeout(dragHoldTimeout.current);
+      dragHoldTimeout.current = null;
+    }
+  };
+
+  // QuickPropertiesPopup component (memoized, DOM-anchored, no rerender on every input)
+  const QuickPropertiesPopup = memo(({ element, onUpdate, onClose, editorRef }: { element: Element, onUpdate: (updates: Partial<Element>) => void, onClose: () => void, editorRef: React.RefObject<HTMLDivElement> }) => {
+    const popupRef = useRef<HTMLDivElement>(null);
+    const [popupPos, setPopupPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+    const [popupInlineEdit, setPopupInlineEdit] = useState<{ field: string, value: string } | null>(null);
+
+    useLayoutEffect(() => {
+      if (!editorRef.current) return;
+      const editor = editorRef.current;
+      const elNode = document.querySelector(`[data-element-id='${element.id}']`) as HTMLElement | null;
+      if (!elNode) return;
+      // Calculate position relative to editor container using getBoundingClientRect
+      const editorRect = editor.getBoundingClientRect();
+      const elRect = elNode.getBoundingClientRect();
+      let left = elRect.right - editorRect.left + 12;
+      let top = elRect.top - editorRect.top;
+      // If not enough space to the right, show below
+      if (left + 260 > editor.offsetWidth) {
+        left = elRect.left - editorRect.left;
+        top = elRect.bottom - editorRect.top + 12;
+      }
+      setPopupPos({ top, left });
+    }, [element.id, element.xPx, element.yPx, editorRef]);
+
+    // Helper for rendering inline edit field
+    const renderInlineEditField = (field: string, value: string, placeholder: string = '', label: string = '', forceInput: boolean = false) => (
+      (forceInput || (popupInlineEdit && popupInlineEdit.field === field)) ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            type="text"
+            value={forceInput ? value : (popupInlineEdit ? popupInlineEdit.value : '')}
+            autoFocus
+            className="w-full border rounded px-2 py-1 text-sm"
+            placeholder={placeholder}
+            onChange={e => forceInput ? onUpdate({ [field]: e.target.value }) : setPopupInlineEdit({ field, value: e.target.value })}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                forceInput ? onUpdate({ [field]: (e.target as HTMLInputElement).value }) : onUpdate({ [field]: popupInlineEdit ? popupInlineEdit.value : '' });
+                if (!forceInput) setPopupInlineEdit(null);
+              } else if (e.key === 'Escape') {
+                if (!forceInput) setPopupInlineEdit(null);
+              }
+            }}
+            style={{ flex: 1 }}
+          />
+          {!forceInput && (
+            <button
+              type="button"
+              className="text-xs px-2 py-1 border rounded bg-gray-100 hover:bg-gray-200"
+              onClick={() => {
+                onUpdate({ [field]: popupInlineEdit ? popupInlineEdit.value : '' });
+                setPopupInlineEdit(null);
+              }}
+            >
+              Done
+            </button>
+          )}
+        </div>
+      ) : (
+        <div
+          className="w-full border rounded px-2 py-1 text-sm cursor-pointer bg-white"
+          tabIndex={0}
+          onClick={() => setPopupInlineEdit({ field, value: value || '' })}
+          onKeyDown={e => { if (e.key === 'Enter') setPopupInlineEdit({ field, value: value || '' }); }}
+          style={{ minHeight: 28, display: 'flex', alignItems: 'center' }}
+        >
+          {value || <span className="text-gray-400">{placeholder || '(empty)'}</span>}
+        </div>
+      )
+    );
+
+    // Render property fields based on type
+    let fields: React.ReactNode[] = [];
+    if (element.type === 'text') {
+      fields = [
+        <div key="text-content" className="mb-2">
+          <label className="block text-xs font-medium mb-1">Text Content</label>
+          <textarea
+            className="w-full border rounded px-2 py-1 text-sm"
+            value={element.content || ''}
+            onChange={e => onUpdate({ content: e.target.value })}
+            rows={3}
+            style={{ resize: 'vertical' }}
+            placeholder="Text"
+          />
+        </div>,
+        <div key="font" className="mb-2">
+          <label className="block text-xs font-medium mb-1">Font</label>
+          <select
+            className="w-full border rounded px-2 py-1 text-sm"
+            value={element.fontFamily || ''}
+            onChange={e => onUpdate({ fontFamily: e.target.value })}
+          >
+            {fontOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>,
+        <div key="color" className="mb-2">
+          <label className="block text-xs font-medium mb-1">Text Color</label>
+          <input
+            type="color"
+            className="w-8 h-8 p-0 border-0 bg-transparent cursor-pointer"
+            value={element.color || '#333333'}
+            onChange={e => onUpdate({ color: e.target.value })}
+          />
+        </div>,
+      ];
+    } else if (element.type === 'button') {
+      fields = [
+        <div key="button-text" className="mb-2">
+          <label className="block text-xs font-medium mb-1">Button Text</label>
+          <textarea
+            className="w-full border rounded px-2 py-1 text-sm"
+            value={element.text || ''}
+            onChange={e => onUpdate({ text: e.target.value })}
+            rows={2}
+            style={{ resize: 'vertical' }}
+            placeholder="Button Text"
+          />
+        </div>,
+        <div key="font" className="mb-2">
+          <label className="block text-xs font-medium mb-1">Font</label>
+          <select
+            className="w-full border rounded px-2 py-1 text-sm"
+            value={element.fontFamily || ''}
+            onChange={e => onUpdate({ fontFamily: e.target.value })}
+          >
+            {fontOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>,
+        <div key="code" className="mb-2">
+          <label className="block text-xs font-medium mb-1">Code</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              className="w-full border rounded px-2 py-1 text-sm font-mono"
+              value={element.customJS || ''}
+              onChange={e => onUpdate({ customJS: e.target.value })}
+              placeholder="// JS code"
+            />
+            <button
+              type="button"
+              className="text-xs px-2 py-1 border rounded bg-blue-100 hover:bg-blue-200"
+              onClick={() => {
+                if (typeof setShowCodeBuilder === 'function') {
+                  setShowCodeBuilder(true);
+                  setCodeBuilderInitialCode(element.customJS || '');
+                  setCustomCodeSaveHandler((code: string) => onUpdate({ customJS: code }));
+                }
+              }}
+            >
+              Visual Editor
+            </button>
+          </div>
+        </div>,
+      ];
+    } else if (element.type === 'input') {
+      fields = [
+        <div key="placeholder" className="mb-2">
+          <label className="block text-xs font-medium mb-1">Placeholder</label>
+          <input
+            className="w-full border rounded px-2 py-1 text-sm"
+            value={element.placeholder || ''}
+            onChange={e => onUpdate({ placeholder: e.target.value })}
+          />
+        </div>,
+        <div key="input-type" className="mb-2">
+          <label className="block text-xs font-medium mb-1">Input Type</label>
+          <input
+            className="w-full border rounded px-2 py-1 text-sm"
+            value={element.inputType || ''}
+            onChange={e => onUpdate({ inputType: e.target.value })}
+          />
+        </div>,
+        <div key="input-id" className="mb-2">
+          <label className="block text-xs font-medium mb-1">Input ID</label>
+          <input
+            className="w-full border rounded px-2 py-1 text-sm font-mono"
+            value={element.inputId || ''}
+            onChange={e => onUpdate({ inputId: e.target.value })}
+          />
+        </div>,
+      ];
+    }
+
+    return (
+      <div
+        ref={popupRef}
+        style={{
+          position: 'absolute',
+          left: popupPos.left,
+          top: popupPos.top,
+          zIndex: 20000,
+          minWidth: 220,
+          maxWidth: 320,
+          background: 'white',
+          border: '1px solid #e5e7eb',
+          borderRadius: 8,
+          boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
+          padding: 16,
+          transition: 'opacity 0.15s',
+        }}
+        className="quick-props-popup"
+      >
+        <div className="font-semibold text-sm mb-2">Quick Properties</div>
+        {fields}
+        <button
+          className="mt-2 px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs border border-gray-200"
+          onClick={onClose}
+        >
+          Close
+        </button>
+      </div>
+    );
+  });
+
+  // In WebsiteBuilder, auto-hide quick properties popup during moving:
+  useEffect(() => {
+    if (draggingElementId) {
+      setShowQuickProps(false);
+      setInlineTextEdit(null);
+    }
+  }, [draggingElementId]);
+
+  // Font options (copied from ElementProperties)
+  const fontOptions = [
+    { value: '', label: 'Standard (Inherit)' },
+    { value: 'Arial, sans-serif', label: 'Arial' },
+    { value: 'Roboto, sans-serif', label: 'Roboto' },
+    { value: 'Times New Roman, serif', label: 'Times New Roman' },
+    { value: 'Courier New, monospace', label: 'Courier New' },
+    { value: 'Georgia, serif', label: 'Georgia' },
+    { value: 'Verdana, sans-serif', label: 'Verdana' },
+    { value: 'Tahoma, sans-serif', label: 'Tahoma' },
+    { value: 'Trebuchet MS, sans-serif', label: 'Trebuchet MS' },
+    { value: 'Comic Sans MS, Comic Sans, cursive', label: 'Comic Sans' },
+    { value: 'Impact, Charcoal, sans-serif', label: 'Impact' },
+    { value: 'Lucida Console, Monaco, monospace', label: 'Lucida Console' },
+    { value: 'Palatino Linotype, Book Antiqua, Palatino, serif', label: 'Palatino' },
+    { value: 'Garamond, serif', label: 'Garamond' },
+    { value: 'Brush Script MT, cursive', label: 'Brush Script' },
+    { value: 'Franklin Gothic Medium, Arial Narrow, Arial, sans-serif', label: 'Franklin Gothic' },
+    { value: 'Gill Sans, Gill Sans MT, Calibri, sans-serif', label: 'Gill Sans' },
+    { value: 'Futura, Trebuchet MS, Arial, sans-serif', label: 'Futura' },
+    { value: 'Copperplate, Papyrus, fantasy', label: 'Copperplate' },
+    { value: 'Monaco, monospace', label: 'Monaco' },
+  ];
+
+  // In WebsiteBuilder, auto-show quick properties popup after drag stop:
+  useEffect(() => {
+    // Show quick props after drag stop if an element was moved
+    if (!draggingElementId && selectedElement && !showQuickProps && selectedElement.type !== 'text') {
+      setShowQuickProps(true);
+    }
+  }, [draggingElementId]);
+
+  // When a block is added or editing is started, set focusedParam to the first text param
+
+
   return (
     <>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-800 flex">
@@ -1854,9 +2709,11 @@ export const WebsiteBuilder = ({
                 </Button>
               )}
               <Badge variant="outline">{website.name}</Badge>
+              <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(true)} title="Einstellungen">
+                <SettingsIcon className="h-4 w-4" />
+              </Button>
             </div>
-            
-            <div className="flex gap-2 flex-wrap overflow-x-auto min-w-0">
+            <div className="flex gap-2 flex-wrap overflow-x-auto min-w-0 mb-2">
               <Button onClick={handleSave} disabled={saving} size="sm" variant="outline">
                 <Save className="mr-1 h-3 w-3" />
                 {saving ? 'Speichert...' : (website.isPublished ? 'Speichern & Aktualisieren' : 'Speichern')}
@@ -1913,7 +2770,7 @@ export const WebsiteBuilder = ({
 
         {/* Preview Area */}
         <div className="flex-1 p-8">
-          <Card className="w-full max-w-4xl mx-auto min-h-96">
+          <Card className="w-full max-w-6xl mx-auto min-h-96">
             <CardHeader>
               <CardTitle className="text-center">Website Vorschau</CardTitle>
             </CardHeader>
@@ -1936,6 +2793,7 @@ export const WebsiteBuilder = ({
                       padding: 0,
                       margin: 0,
                       transition: 'filter 0.2s',
+                      background: backgroundColor,
                     }}
                   >
                     {elements.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0)).map(renderElement)}
@@ -1965,6 +2823,40 @@ export const WebsiteBuilder = ({
                       );
                     })()}
                   </div>
+                  {showSnappingGuides && alignmentGuides.x.map((x, i) => (
+                    <div
+                      key={`v-guide-${x}-${i}`}
+                      style={{
+                        position: 'absolute',
+                        left: x,
+                        top: 0,
+                        width: 2,
+                        height: editorHeight,
+                        background: 'rgba(59,130,246,0.7)', // blue-500
+                        zIndex: 10000,
+                        pointerEvents: 'none',
+                        opacity: snappedGuides.x.includes(x) ? 1 : 0.5,
+                        transition: 'opacity 0.1s',
+                      }}
+                    />
+                  ))}
+                  {showSnappingGuides && alignmentGuides.y.map((y, i) => (
+                    <div
+                      key={`h-guide-${y}-${i}`}
+                      style={{
+                        position: 'absolute',
+                        top: y,
+                        left: 0,
+                        height: 2,
+                        width: '100%',
+                        background: 'rgba(59,130,246,0.7)',
+                        zIndex: 10000,
+                        pointerEvents: 'none',
+                        opacity: snappedGuides.y.includes(y) ? 1 : 0.5,
+                        transition: 'opacity 0.1s',
+                      }}
+                    />
+                  ))}
                 </div>
               )}
             </CardContent>
@@ -2094,6 +2986,214 @@ export const WebsiteBuilder = ({
           <div className="animate-pulse bg-gray-200 rounded h-2 w-full" style={{ minWidth: 100 }} />
         )}
       </div>
+
+      {/* Favicon Conversion Modal */}
+      <Dialog open={faviconModalOpen} onOpenChange={setFaviconModalOpen}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle>Favicon wird konvertiert...</DialogTitle>
+            <DialogDescription>Dein Icon wird vorbereitet. Bitte warte einen Moment.</DialogDescription>
+          </DialogHeader>
+          <div className="w-32 h-32 grid grid-cols-4 grid-rows-4 gap-1 mx-auto mt-4">
+            {Array.from({ length: 16 }).map((_, i) => (
+              <div
+                key={i}
+                className={`w-7 h-7 rounded bg-blue-200 border border-blue-400 transition-transform duration-200 ${faviconGridAnim.includes(i) ? 'scale-110 animate-bounce' : ''}`}
+                style={{ animationDelay: `${(i % 4) * 0.05 + Math.floor(i / 4) * 0.07}s` }}
+              />
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Settings Dialog */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Website Einstellungen</DialogTitle>
+            <DialogDescription>Verwalte favicon und weitere Einstellungen.</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto max-h-[60vh] pr-2">
+            <div className="mb-4">
+              <div className="font-semibold text-xs text-gray-700 mb-2 flex items-center gap-2">
+                <span>Favicon</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {faviconPreview && (
+                  <img src={faviconPreview} alt="Favicon" className="w-6 h-6 rounded border border-gray-300 bg-white" />
+                )}
+                <label className="ml-1 cursor-pointer text-xs bg-gray-100 px-2 py-1 rounded border border-gray-200 hover:bg-gray-200 flex items-center gap-1">
+                  <UploadCloud className="w-4 h-4 mr-1 text-blue-500" />
+                  Favicon hochladen
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFaviconUpload} disabled={faviconUploading} />
+                </label>
+                {faviconError && <span className="ml-2 text-red-600">{faviconError}</span>}
+                {website.favicon && <span className="ml-2">✅</span>}
+              </div>
+            </div>
+
+            {/* Revoke Publish Section */}
+            <div className="mb-4 border-t pt-4 mt-4">
+              <div className="font-semibold text-xs text-gray-700 mb-2 flex items-center gap-2">
+                <span>Veröffentlichung verwalten</span>
+              </div>
+              {website.isPublished ? (
+                <>
+                  {website.unpublishDelayActive && website.pendingUnpublishAt ? (
+                    (() => {
+                      let date: Date;
+                      if (website.pendingUnpublishAt instanceof Timestamp) {
+                        date = website.pendingUnpublishAt.toDate();
+                      } else if (typeof website.pendingUnpublishAt === 'string') {
+                        date = new Date(website.pendingUnpublishAt);
+                      } else {
+                        date = website.pendingUnpublishAt as Date;
+                      }
+                      const dateString = isNaN(date.getTime()) ? 'Ungültiges Datum' : date.toLocaleString();
+                      return (
+                        <div className="mb-2 text-sm text-yellow-700 flex flex-col gap-1">
+                          <span>Unpublish geplant für: {dateString}</span>
+                          <Button size="sm" variant="outline" onClick={handleUndoUnpublish} disabled={undoingUnpublish || (isCollaborative && !isOwner)}>
+                            {undoingUnpublish ? 'Wird rückgängig gemacht...' : `Unpublish rückgängig machen (1 Token)`}
+                          </Button>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <Button size="sm" variant="destructive" onClick={() => setShowRevokeDialog(true)} disabled={isCollaborative && !isOwner}>
+                        Veröffentlichung aufheben
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-green-700 text-xs">Diese Website ist nicht veröffentlicht.</div>
+              )}
+            </div>
+
+            {/* Rename Website Section */}
+            <div className="mb-4 border-t pt-4 mt-4">
+              <div className="font-semibold text-xs text-gray-700 mb-2 flex items-center gap-2">
+                <span>Website umbenennen</span>
+              </div>
+              <div className="flex gap-2 items-center">
+                <Input value={renameValue} onChange={e => setRenameValue(e.target.value)} placeholder="Neuer Name" disabled={isCollaborative} />
+                <Button size="sm" onClick={handleRename} disabled={renaming || (isCollaborative)}>
+                  {renaming ? 'Speichern...' : `Umbenennen (1 Token)`}
+                </Button>
+              </div>
+              {renameError && <div className="text-xs text-red-600 mt-1">{renameError}</div>}
+            </div>
+
+            {/* Analytics Section */}
+            <div className="mb-2 border-t pt-4 mt-4">
+              <div className="font-semibold text-xs text-gray-700 mb-2 flex items-center gap-2">
+                <span>Analytics</span>
+              </div>
+              <div className="flex flex-col gap-1 text-xs">
+                <span>Besuche insgesamt: {analytics.totalVisits}</span>
+              </div>
+            </div>
+            {/* Background Color Picker */}
+            <div className="mb-4">
+              <div className="font-semibold text-xs text-gray-700 mb-2 flex items-center gap-2">
+                <span>Hintergrundfarbe</span>
+              </div>
+              <input
+                type="color"
+                value={backgroundColor}
+                onChange={e => handleBackgroundColorChange(e.target.value)}
+                className="w-10 h-10 p-0 border-0 bg-transparent cursor-pointer"
+                title="Hintergrundfarbe wählen"
+                disabled={isCollaborative}
+              />
+              <span className="ml-2 text-xs">{backgroundColor}</span>
+            </div>
+            {/* Advanced Snapping Toggle */}
+            <div className="mb-4">
+              <div className="font-semibold text-xs text-gray-700 mb-2 flex items-center gap-2">
+                <span>Advanced Snapping</span>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={advancedSnapping}
+                  onChange={e => setAdvancedSnapping(e.target.checked)}
+                  className="form-checkbox h-4 w-4 text-blue-600"
+                  
+                />
+                <span className="text-xs">Enable snapping to consistent spacing between elements</span>
+              </label>
+            </div>
+            {/* Snapping Settings Section */}
+            <div className="mb-6 p-4 rounded-lg border border-gray-200 bg-gray-50 dark:bg-gray-800">
+              <div className="font-semibold text-sm text-gray-800 dark:text-gray-100 mb-3 flex items-center gap-2">
+                <span>Snapping Settings</span>
+              </div>
+              {/* Show Snapping Guides Toggle */}
+              <label className="flex items-center gap-3 mb-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showSnappingGuides}
+                  onChange={e => setShowSnappingGuides(e.target.checked)}
+                  className="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-400"
+                  
+                />
+                <span className="text-sm">Show Snapping Guides</span>
+              </label>
+              {/* Advanced Snapping Toggle */}
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={advancedSnapping}
+                  onChange={e => setAdvancedSnapping(e.target.checked)}
+                  className="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-400"
+                  
+                />
+                <span className="text-sm">Advanced Snapping (consistent spacing)</span>
+              </label>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revoke Publish Dialog */}
+      <Dialog open={showRevokeDialog} onOpenChange={setShowRevokeDialog}>
+        <DialogContent className="max-w-md p-6">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertCircle className="w-6 h-6 text-red-500" /> Veröffentlichung aufheben
+            </DialogTitle>
+            <DialogDescription className="text-gray-700 mt-2">
+              Achtung: Das Aufheben der Veröffentlichung macht deine Website offline. Nutzen sie dieses vor Website Updates oder co.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-6 mt-4">
+            <div className="border rounded-lg p-4 bg-red-50 flex flex-col gap-2">
+              <div className="font-semibold text-red-700 flex items-center gap-2">
+                <Zap className="w-5 h-5 text-red-400" /> Sofort offline schalten
+              </div>
+              <div className="text-xs text-red-700 mb-2">
+                Deine Website wird <b>sofort</b> offline genommen. Besucher können sie nicht mehr aufrufen.
+              </div>
+              <Button variant="destructive" onClick={handleInstantUnpublish} disabled={revokingInstant} className="w-full">
+                {revokingInstant ? 'Wird aufgehoben...' : 'Sofort offline schalten'}
+              </Button>
+            </div>
+          </div>
+          <Button variant="ghost" onClick={() => setShowRevokeDialog(false)} className="w-full mt-6">Abbrechen</Button>
+        </DialogContent>
+      </Dialog>
+      {showQuickProps && selectedElement && (
+        <QuickPropertiesPopup
+          key={selectedElement.id + '-' + (selectedElement.xPx ?? 0) + '-' + (selectedElement.yPx ?? 0)}
+          element={selectedElement}
+          onUpdate={updates => updateElement(selectedElement.id, updates)}
+          onClose={() => setShowQuickProps(false)}
+          editorRef={editorRef}
+        />
+      )}
     </>
   );
 };

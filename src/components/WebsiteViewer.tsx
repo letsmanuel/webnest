@@ -26,6 +26,23 @@ export const WebsiteViewer = () => {
     // eslint-disable-next-line
   }, [id, user, authLoading]);
 
+  useEffect(() => {
+    if (websiteObj && websiteObj.name) {
+      document.title = websiteObj.name;
+    }
+    // Favicon logic
+    if (websiteObj && websiteObj.favicon) {
+      let faviconTag = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
+      if (!faviconTag) {
+        faviconTag = document.createElement('link');
+        faviconTag.rel = 'icon';
+        document.head.appendChild(faviconTag);
+      }
+      faviconTag.type = 'image/x-icon';
+      faviconTag.href = `data:image/x-icon;base64,${websiteObj.favicon}`;
+    }
+  }, [websiteObj]);
+
   const loadWebsite = async () => {
     console.log('WebsiteViewer: loadWebsite called with id:', id);
     
@@ -100,6 +117,15 @@ export const WebsiteViewer = () => {
           decodedHtml = atob(website.htmlContent);
         }
         setHtmlContent(decodedHtml);
+        // --- Analytics Tracking: Increment totalVisits and update lastVisit ---
+        if (website.id) {
+          websiteService.updateWebsite(website.id, {
+            totalVisits: (typeof website.totalVisits === 'number' ? website.totalVisits + 1 : 1),
+            lastVisit: new Date()
+          }).catch((err) => {
+            console.error('Failed to update analytics:', err);
+          });
+        }
       } else {
         setError('Kein Inhalt verfügbar');
       }
@@ -256,7 +282,8 @@ export const WebsiteViewer = () => {
           </div>
         )}
         <div
-          className="min-h-screen"
+          // Removed min-h-screen to allow published HTML to control height
+          style={{ overflowX: 'hidden', width: '100vw', maxWidth: '100vw' }}
           dangerouslySetInnerHTML={{ __html: htmlContent }}
         />
       </>
@@ -293,6 +320,7 @@ export const WebsiteViewer = () => {
       )}
       <div
         className="min-h-screen"
+        style={{ overflowX: 'hidden', width: '100vw', maxWidth: '100vw' }}
         dangerouslySetInnerHTML={{ __html: htmlContent }}
       />
     </>

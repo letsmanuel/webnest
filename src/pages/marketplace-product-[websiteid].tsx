@@ -49,6 +49,7 @@ const MarketplaceProduct: React.FC = () => {
         isPublished: false,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
+        allowedUserIds: [user.uid],
       };
       if (template.editorHeight !== undefined) newWebsite.editorHeight = template.editorHeight;
       if (template.elementsJson !== undefined) newWebsite.elementsJson = template.elementsJson;

@@ -24,6 +24,12 @@ export interface Website {
   updatedAt: Date;
   editorHeight?: number;
   elementsJson?: string;
+  favicon?: string; // base64 .ico favicon
+  totalVisits?: number;
+  lastVisit?: Date;
+  pendingUnpublishAt?: Date|null;
+  unpublishDelayActive?: boolean;
+  backgroundColor?: string; // Custom background color
 }
 
 export const websiteService = {
@@ -41,6 +47,7 @@ export const websiteService = {
     const now = new Date();
     const docRef = await addDoc(collection(db, 'websites'), {
       ...websiteData,
+      allowedUserIds: [websiteData.userId],
       createdAt: Timestamp.fromDate(now),
       updatedAt: Timestamp.fromDate(now)
     });
@@ -137,21 +144,17 @@ export const websiteService = {
       // Check if website has a custom path
       const customPath = await this.getCustomPathForWebsite(id);
       const hasCustomPath = !!customPath;
-      
       // Calculate website age in hours
       const websiteAge = Date.now() - website.createdAt.getTime();
       const websiteAgeHours = websiteAge / (1000 * 60 * 60);
-      
       // Calculate refund using the new method
       const refundAmount = userService.calculateWebsiteRefund(hasCustomPath, websiteAgeHours);
-      
       if (customPath) {
         // Delete DNS entry
         const dnsDocRef = doc(db, 'userdns', customPath);
         await deleteDoc(dnsDocRef);
         console.log('Deleted DNS entry for custom path:', customPath);
       }
-      
       // Add refunded tokens to user account
       if (refundAmount > 0) {
         await userService.addTokens(
@@ -162,7 +165,6 @@ export const websiteService = {
         console.log(`Refunded ${refundAmount} tokens to user ${website.userId} for website deletion`);
       }
     }
-    
     const docRef = doc(db, 'websites', id);
     await deleteDoc(docRef);
   },
@@ -202,7 +204,8 @@ export const websiteService = {
     await setDoc(dnsDocRef, {
       websiteId: websiteId,
       userId: website.userId,
-      createdAt: Timestamp.fromDate(new Date())
+      createdAt: Timestamp.fromDate(new Date()),
+      allowedUserIds: [website.userId],
     });
   },
 
@@ -220,7 +223,8 @@ export const websiteService = {
     return null;
   },
 
-  generateHTML(elements: any[]): string {
+  generateHTML(elements: any[], backgroundColor?: string): string {
+    const bg = backgroundColor || '#ffffff';
     let html = `
 <!DOCTYPE html>
 <html lang="de">
@@ -236,6 +240,7 @@ export const websiteService = {
             width: 100vw;
             min-width: 100vw;
             transition: background-color 0.3s, color 0.3s;
+            background: ${bg};
         }
         .dark-mode {
             background-color: #1a1a1a;
@@ -347,13 +352,23 @@ export const websiteService = {
     </script>
 `;
 
+    // Calculate required container height based on elements
+    let requiredHeight = 0;
+    const editorHeight = elements && elements.length && elements[0].editorHeight ? elements[0].editorHeight : 1200;
+    elements.forEach(el => {
+      const yPercent = typeof el.y === 'number' ? el.y : 10;
+      const yPx = (yPercent / 100) * editorHeight;
+      const heightPx = el.heightPx || 40; // Default to 40px if not set
+      const bottom = yPx + heightPx;
+      if (bottom > requiredHeight) requiredHeight = bottom;
+    });
+    if (requiredHeight < editorHeight) requiredHeight = editorHeight;
     let bodyAttrs = '';
-    if (elements && elements.length && elements[0].editorHeight) {
-      bodyAttrs = ` data-editor-height=\"${elements[0].editorHeight}\" style=\"min-height:${elements[0].editorHeight}px\"`;
+    if (elements && elements.length) {
+      bodyAttrs = ` data-editor-height="${editorHeight}" style="overflow-y:auto;overflow-x:hidden;width:100vw;box-sizing:border-box;"`;
     }
-
     html += `<body${bodyAttrs}>\n`;
-
+    html += `<div style="position:relative;width:100vw;max-width:100vw;height:${requiredHeight}px;overflow-x:hidden;box-sizing:border-box;">\n`;
     elements.forEach(element => {
       // Helper for width/height style
       const sizeStyle =
@@ -409,6 +424,7 @@ export const websiteService = {
           break;
       }
     });
+    html += `</div>\n`;
 
     html += `
 </body>
@@ -450,12 +466,18 @@ export const websiteService = {
       const elements: any[] = [];
       let elementId = 1;
 
-      // Helper function to extract style properties
-      const getStyleProperty = (element: Element, property: string): string => {
-        const style = element.getAttribute('style');
-        if (!style) return '';
-        const match = style.match(new RegExp(`${property}:\\s*([^;]+)`));
-        return match ? match[1].trim() : '';
+      // Helper function to extract style properties, searching up the DOM tree if not found
+      const getStylePropertyDeep = (element: Element, property: string): string => {
+        let el: Element | null = element;
+        while (el) {
+          const style = el.getAttribute('style');
+          if (style) {
+            const match = style.match(new RegExp(`${property}:\s*([^;]+)`));
+            if (match) return match[1].trim();
+          }
+          el = el.parentElement;
+        }
+        return '';
       };
 
       // Helper function to extract YouTube video ID
@@ -475,17 +497,17 @@ export const websiteService = {
             id: elementId.toString(),
             type: 'text',
             content: headingElement.textContent || 'Heading',
-            color: getStyleProperty(headingElement, 'color') || '#333333',
-            fontSize: parseInt(getStyleProperty(headingElement, 'font-size'), 10) || 
+            color: getStylePropertyDeep(headingElement, 'color') || '#333333',
+            fontSize: parseInt(getStylePropertyDeep(headingElement, 'font-size'), 10) || 
                      (headingElement.tagName === 'H1' ? 32 : 
                       headingElement.tagName === 'H2' ? 28 : 
                       headingElement.tagName === 'H3' ? 24 : 20),
             animation: element.getAttribute('data-animation'),
             animationSpeed: element.getAttribute('data-animation-speed'),
             animationDirection: element.getAttribute('data-animation-direction'),
-            x: parseFloat((getStyleProperty(headingElement, 'left') || '').replace('%','')) || 10,
-            y: parseFloat((getStyleProperty(headingElement, 'top') || '').replace('%','')) || 10,
-            fontFamily: getStyleProperty(headingElement, 'font-family') || undefined,
+            x: parseFloat((getStylePropertyDeep(headingElement, 'left') || '').replace('%','')) || 10,
+            y: parseFloat((getStylePropertyDeep(headingElement, 'top') || '').replace('%','')) || 10,
+            fontFamily: getStylePropertyDeep(headingElement, 'font-family') || undefined,
           });
           elementId++;
         });
@@ -501,14 +523,14 @@ export const websiteService = {
             id: elementId.toString(),
             type: 'text',
             content: pElement.textContent || 'Text',
-            color: getStyleProperty(pElement, 'color') || '#333333',
-            fontSize: parseInt(getStyleProperty(pElement, 'font-size'), 10) || 16,
+            color: getStylePropertyDeep(pElement, 'color') || '#333333',
+            fontSize: parseInt(getStylePropertyDeep(pElement, 'font-size'), 10) || 16,
             animation: element.getAttribute('data-animation'),
             animationSpeed: element.getAttribute('data-animation-speed'),
             animationDirection: element.getAttribute('data-animation-direction'),
-            x: parseFloat((getStyleProperty(pElement, 'left') || '').replace('%','')) || 10,
-            y: parseFloat((getStyleProperty(pElement, 'top') || '').replace('%','')) || 10,
-            fontFamily: getStyleProperty(pElement, 'font-family') || undefined,
+            x: parseFloat((getStylePropertyDeep(pElement, 'left') || '').replace('%','')) || 10,
+            y: parseFloat((getStylePropertyDeep(pElement, 'top') || '').replace('%','')) || 10,
+            fontFamily: getStylePropertyDeep(pElement, 'font-family') || undefined,
           });
           elementId++;
         });
@@ -527,25 +549,25 @@ export const websiteService = {
               animation: element.getAttribute('data-animation'),
               animationSpeed: element.getAttribute('data-animation-speed'),
               animationDirection: element.getAttribute('data-animation-direction'),
-              x: parseFloat((getStyleProperty(buttonElement, 'left') || '').replace('%','')) || 10,
-              y: parseFloat((getStyleProperty(buttonElement, 'top') || '').replace('%','')) || 10,
-              fontFamily: getStyleProperty(buttonElement, 'font-family') || undefined,
+              x: parseFloat((getStylePropertyDeep(buttonElement, 'left') || '').replace('%','')) || 10,
+              y: parseFloat((getStylePropertyDeep(buttonElement, 'top') || '').replace('%','')) || 10,
+              fontFamily: getStylePropertyDeep(buttonElement, 'font-family') || undefined,
             });
           } else {
             elements.push({
               id: elementId.toString(),
               type: 'button',
               text: buttonElement.textContent || 'Button',
-              backgroundColor: getStyleProperty(buttonElement, 'background-color') || '#667eea',
+              backgroundColor: getStylePropertyDeep(buttonElement, 'background-color') || '#667eea',
               customJS: onclick,
               animation: element.getAttribute('data-animation'),
               animationSpeed: element.getAttribute('data-animation-speed'),
               animationDirection: element.getAttribute('data-animation-direction'),
-              x: parseFloat((getStyleProperty(buttonElement, 'left') || '').replace('%','')) || 10,
-              y: parseFloat((getStyleProperty(buttonElement, 'top') || '').replace('%','')) || 10,
-              fontFamily: getStyleProperty(buttonElement, 'font-family') || undefined,
-              widthPx: parseInt(getStyleProperty(buttonElement, 'width'), 10) || undefined,
-              heightPx: parseInt(getStyleProperty(buttonElement, 'height'), 10) || undefined,
+              x: parseFloat((getStylePropertyDeep(buttonElement, 'left') || '').replace('%','')) || 10,
+              y: parseFloat((getStylePropertyDeep(buttonElement, 'top') || '').replace('%','')) || 10,
+              fontFamily: getStylePropertyDeep(buttonElement, 'font-family') || undefined,
+              widthPx: parseInt(getStylePropertyDeep(buttonElement, 'width'), 10) || undefined,
+              heightPx: parseInt(getStylePropertyDeep(buttonElement, 'height'), 10) || undefined,
             });
           }
           elementId++;
@@ -563,11 +585,11 @@ export const websiteService = {
             animation: element.getAttribute('data-animation'),
             animationSpeed: element.getAttribute('data-animation-speed'),
             animationDirection: element.getAttribute('data-animation-direction'),
-            x: parseFloat((getStyleProperty(imgElement, 'left') || '').replace('%','')) || 10,
-            y: parseFloat((getStyleProperty(imgElement, 'top') || '').replace('%','')) || 10,
-            fontFamily: getStyleProperty(imgElement, 'font-family') || undefined,
-            widthPx: parseInt(getStyleProperty(imgElement, 'width'), 10) || undefined,
-            heightPx: parseInt(getStyleProperty(imgElement, 'height'), 10) || undefined,
+            x: parseFloat((getStylePropertyDeep(imgElement, 'left') || '').replace('%','')) || 10,
+            y: parseFloat((getStylePropertyDeep(imgElement, 'top') || '').replace('%','')) || 10,
+            fontFamily: getStylePropertyDeep(imgElement, 'font-family') || undefined,
+            widthPx: parseInt(getStylePropertyDeep(imgElement, 'width'), 10) || undefined,
+            heightPx: parseInt(getStylePropertyDeep(imgElement, 'height'), 10) || undefined,
           });
           elementId++;
         });
@@ -585,9 +607,9 @@ export const websiteService = {
             animation: element.getAttribute('data-animation'),
             animationSpeed: element.getAttribute('data-animation-speed'),
             animationDirection: element.getAttribute('data-animation-direction'),
-            x: parseFloat((getStyleProperty(inputElement, 'left') || '').replace('%','')) || 10,
-            y: parseFloat((getStyleProperty(inputElement, 'top') || '').replace('%','')) || 10,
-            fontFamily: getStyleProperty(inputElement, 'font-family') || undefined,
+            x: parseFloat((getStylePropertyDeep(inputElement, 'left') || '').replace('%','')) || 10,
+            y: parseFloat((getStylePropertyDeep(inputElement, 'top') || '').replace('%','')) || 10,
+            fontFamily: getStylePropertyDeep(inputElement, 'font-family') || undefined,
           });
           elementId++;
         });
@@ -604,14 +626,14 @@ export const websiteService = {
             type: 'link-text',
             text: linkElement.textContent || 'Link Text',
             url: linkElement.getAttribute('href') || '#',
-            color: getStyleProperty(linkElement, 'color') || '#667eea',
-            fontSize: parseInt(getStyleProperty(linkElement, 'font-size'), 10) || 16,
+            color: getStylePropertyDeep(linkElement, 'color') || '#667eea',
+            fontSize: parseInt(getStylePropertyDeep(linkElement, 'font-size'), 10) || 16,
             animation: element.getAttribute('data-animation'),
             animationSpeed: element.getAttribute('data-animation-speed'),
             animationDirection: element.getAttribute('data-animation-direction'),
-            x: parseFloat((getStyleProperty(linkElement, 'left') || '').replace('%','')) || 10,
-            y: parseFloat((getStyleProperty(linkElement, 'top') || '').replace('%','')) || 10,
-            fontFamily: getStyleProperty(linkElement, 'font-family') || undefined,
+            x: parseFloat((getStylePropertyDeep(linkElement, 'left') || '').replace('%','')) || 10,
+            y: parseFloat((getStylePropertyDeep(linkElement, 'top') || '').replace('%','')) || 10,
+            fontFamily: getStylePropertyDeep(linkElement, 'font-family') || undefined,
           });
           elementId++;
         });
@@ -645,14 +667,14 @@ export const websiteService = {
                 type: 'link-text',
                 text: link.textContent || 'Link Text',
                 url: link.getAttribute('href') || '#',
-                color: getStyleProperty(link, 'color') || '#667eea',
-                fontSize: parseInt(getStyleProperty(link, 'font-size'), 10) || 16,
+                color: getStylePropertyDeep(link, 'color') || '#667eea',
+                fontSize: parseInt(getStylePropertyDeep(link, 'font-size'), 10) || 16,
                 animation: element.getAttribute('data-animation'),
                 animationSpeed: element.getAttribute('data-animation-speed'),
                 animationDirection: element.getAttribute('data-animation-direction'),
-                x: parseFloat((getStyleProperty(link, 'left') || '').replace('%','')) || 10,
-                y: parseFloat((getStyleProperty(link, 'top') || '').replace('%','')) || 10,
-                fontFamily: getStyleProperty(link, 'font-family') || undefined,
+                x: parseFloat((getStylePropertyDeep(link, 'left') || '').replace('%','')) || 10,
+                y: parseFloat((getStylePropertyDeep(link, 'top') || '').replace('%','')) || 10,
+                fontFamily: getStylePropertyDeep(link, 'font-family') || undefined,
               });
             } else {
               console.log('parseHTML: Found text element');
@@ -661,14 +683,14 @@ export const websiteService = {
                 id: elementId.toString(),
                 type: 'text',
                 content: element.textContent || 'Text',
-                color: getStyleProperty(element, 'color') || '#333333',
-                fontSize: parseInt(getStyleProperty(element, 'font-size'), 10) || 16,
+                color: getStylePropertyDeep(element, 'color') || '#333333',
+                fontSize: parseInt(getStylePropertyDeep(element, 'font-size'), 10) || 16,
                 animation: element.getAttribute('data-animation'),
                 animationSpeed: element.getAttribute('data-animation-speed'),
                 animationDirection: element.getAttribute('data-animation-direction'),
-                x: parseFloat((getStyleProperty(element, 'left') || '').replace('%','')) || 10,
-                y: parseFloat((getStyleProperty(element, 'top') || '').replace('%','')) || 10,
-                fontFamily: getStyleProperty(element, 'font-family') || undefined,
+                x: parseFloat((getStylePropertyDeep(element, 'left') || '').replace('%','')) || 10,
+                y: parseFloat((getStylePropertyDeep(element, 'top') || '').replace('%','')) || 10,
+                fontFamily: getStylePropertyDeep(element, 'font-family') || undefined,
               });
             }
             elementId++;
@@ -688,25 +710,25 @@ export const websiteService = {
                 animation: element.getAttribute('data-animation'),
                 animationSpeed: element.getAttribute('data-animation-speed'),
                 animationDirection: element.getAttribute('data-animation-direction'),
-                x: parseFloat((getStyleProperty(element, 'left') || '').replace('%','')) || 10,
-                y: parseFloat((getStyleProperty(element, 'top') || '').replace('%','')) || 10,
-                fontFamily: getStyleProperty(element, 'font-family') || undefined,
+                x: parseFloat((getStylePropertyDeep(element, 'left') || '').replace('%','')) || 10,
+                y: parseFloat((getStylePropertyDeep(element, 'top') || '').replace('%','')) || 10,
+                fontFamily: getStylePropertyDeep(element, 'font-family') || undefined,
               });
             } else {
               elements.push({
                 id: elementId.toString(),
                 type: 'button',
                 text: element.textContent || 'Button',
-                backgroundColor: getStyleProperty(element, 'background-color') || '#667eea',
+                backgroundColor: getStylePropertyDeep(element, 'background-color') || '#667eea',
                 customJS: onclick,
                 animation: element.getAttribute('data-animation'),
                 animationSpeed: element.getAttribute('data-animation-speed'),
                 animationDirection: element.getAttribute('data-animation-direction'),
-                x: parseFloat((getStyleProperty(element, 'left') || '').replace('%','')) || 10,
-                y: parseFloat((getStyleProperty(element, 'top') || '').replace('%','')) || 10,
-                fontFamily: getStyleProperty(element, 'font-family') || undefined,
-                widthPx: parseInt(getStyleProperty(element, 'width'), 10) || undefined,
-                heightPx: parseInt(getStyleProperty(element, 'height'), 10) || undefined,
+                x: parseFloat((getStylePropertyDeep(element, 'left') || '').replace('%','')) || 10,
+                y: parseFloat((getStylePropertyDeep(element, 'top') || '').replace('%','')) || 10,
+                fontFamily: getStylePropertyDeep(element, 'font-family') || undefined,
+                widthPx: parseInt(getStylePropertyDeep(element, 'width'), 10) || undefined,
+                heightPx: parseInt(getStylePropertyDeep(element, 'height'), 10) || undefined,
               });
             }
             elementId++;
@@ -722,11 +744,11 @@ export const websiteService = {
               animation: element.getAttribute('data-animation'),
               animationSpeed: element.getAttribute('data-animation-speed'),
               animationDirection: element.getAttribute('data-animation-direction'),
-              x: parseFloat((getStyleProperty(element, 'left') || '').replace('%','')) || 10,
-              y: parseFloat((getStyleProperty(element, 'top') || '').replace('%','')) || 10,
-              fontFamily: getStyleProperty(element, 'font-family') || undefined,
-              widthPx: parseInt(getStyleProperty(element, 'width'), 10) || undefined,
-              heightPx: parseInt(getStyleProperty(element, 'height'), 10) || undefined,
+              x: parseFloat((getStylePropertyDeep(element, 'left') || '').replace('%','')) || 10,
+              y: parseFloat((getStylePropertyDeep(element, 'top') || '').replace('%','')) || 10,
+              fontFamily: getStylePropertyDeep(element, 'font-family') || undefined,
+              widthPx: parseInt(getStylePropertyDeep(element, 'width'), 10) || undefined,
+              heightPx: parseInt(getStylePropertyDeep(element, 'height'), 10) || undefined,
             });
             elementId++;
             break;
@@ -742,9 +764,9 @@ export const websiteService = {
               animation: element.getAttribute('data-animation'),
               animationSpeed: element.getAttribute('data-animation-speed'),
               animationDirection: element.getAttribute('data-animation-direction'),
-              x: parseFloat((getStyleProperty(element, 'left') || '').replace('%','')) || 10,
-              y: parseFloat((getStyleProperty(element, 'top') || '').replace('%','')) || 10,
-              fontFamily: getStyleProperty(element, 'font-family') || undefined,
+              x: parseFloat((getStylePropertyDeep(element, 'left') || '').replace('%','')) || 10,
+              y: parseFloat((getStylePropertyDeep(element, 'top') || '').replace('%','')) || 10,
+              fontFamily: getStylePropertyDeep(element, 'font-family') || undefined,
             });
             elementId++;
             break;
@@ -765,11 +787,11 @@ export const websiteService = {
                   animation: element.getAttribute('data-animation'),
                   animationSpeed: element.getAttribute('data-animation-speed'),
                   animationDirection: element.getAttribute('data-animation-direction'),
-                  x: parseFloat((getStyleProperty(element, 'left') || '').replace('%','')) || 10,
-                  y: parseFloat((getStyleProperty(element, 'top') || '').replace('%','')) || 10,
-                  fontFamily: getStyleProperty(element, 'font-family') || undefined,
-                  widthPx: parseInt(getStyleProperty(element, 'width'), 10) || undefined,
-                  heightPx: parseInt(getStyleProperty(element, 'height'), 10) || undefined,
+                  x: parseFloat((getStylePropertyDeep(element, 'left') || '').replace('%','')) || 10,
+                  y: parseFloat((getStylePropertyDeep(element, 'top') || '').replace('%','')) || 10,
+                  fontFamily: getStylePropertyDeep(element, 'font-family') || undefined,
+                  widthPx: parseInt(getStylePropertyDeep(element, 'width'), 10) || undefined,
+                  heightPx: parseInt(getStylePropertyDeep(element, 'height'), 10) || undefined,
                 });
                 elementId++;
               }
@@ -786,13 +808,13 @@ export const websiteService = {
                 btnOnclick = btnOnclick.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
                 const btnObj: any = {
                   text: btn.textContent || 'Button',
-                  backgroundColor: getStyleProperty(btn, 'background-color') || '#667eea',
+                  backgroundColor: getStylePropertyDeep(btn, 'background-color') || '#667eea',
                   customJS: btnOnclick
                 };
                 if (element.getAttribute('data-animation')) btnObj.animation = element.getAttribute('data-animation');
                 if (element.getAttribute('data-animation-speed')) btnObj.animationSpeed = element.getAttribute('data-animation-speed');
                 if (element.getAttribute('data-animation-direction')) btnObj.animationDirection = element.getAttribute('data-animation-direction');
-                btnObj.fontFamily = getStyleProperty(btn, 'font-family') || undefined;
+                btnObj.fontFamily = getStylePropertyDeep(btn, 'font-family') || undefined;
                 buttons.push(btnObj);
               });
 
@@ -804,9 +826,9 @@ export const websiteService = {
                 animation: element.getAttribute('data-animation'),
                 animationSpeed: element.getAttribute('data-animation-speed'),
                 animationDirection: element.getAttribute('data-animation-direction'),
-                x: parseFloat((getStyleProperty(element, 'left') || '').replace('%','')) || 10,
-                y: parseFloat((getStyleProperty(element, 'top') || '').replace('%','')) || 10,
-                fontFamily: getStyleProperty(element, 'font-family') || undefined,
+                x: parseFloat((getStylePropertyDeep(element, 'left') || '').replace('%','')) || 10,
+                y: parseFloat((getStylePropertyDeep(element, 'top') || '').replace('%','')) || 10,
+                fontFamily: getStylePropertyDeep(element, 'font-family') || undefined,
               });
               elementId++;
             } else {
@@ -2031,7 +2053,30 @@ export const websiteService = {
           },
         ];
     }
-  }
+  },
+
+  async unpublishWebsite(id: string, instant: boolean = true): Promise<void> {
+    await websiteService.updateWebsite(id, { isPublished: false, pendingUnpublishAt: null, unpublishDelayActive: false });
+  },
+
+  async scheduleUnpublish(id: string, delayMs?: number): Promise<void> {
+    // No-op: instant unpublish only
+    await websiteService.updateWebsite(id, { isPublished: false, pendingUnpublishAt: null, unpublishDelayActive: false });
+  },
+
+  async undoUnpublish(id: string, userId: string): Promise<void> {
+    // Deduct 1 token for undo
+    const success = await userService.deductTokens(userId, 1, 'Undo unpublish', id);
+    if (!success) throw new Error('Nicht genügend Tokens für Undo.');
+    await websiteService.updateWebsite(id, { pendingUnpublishAt: null, unpublishDelayActive: false });
+  },
+
+  async renameWebsite(id: string, newName: string, userId: string): Promise<void> {
+    // Deduct 1 token for rename
+    const success = await userService.deductTokens(userId, 1, 'Rename website', id);
+    if (!success) throw new Error('Nicht genügend Tokens für Umbenennen.');
+    await websiteService.updateWebsite(id, { name: newName });
+  },
 };
 
 /**

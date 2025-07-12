@@ -29,6 +29,7 @@ export interface UserProfile {
   createdAt: Date;
   updatedAt: Date;
   hasUsedFreeCollabTrial?: boolean; // Added for free collab trial
+  ALLOWFIREBASEADMIN?: boolean; // Always set to false on registration
 }
 
 export interface TokenTransaction {
@@ -57,7 +58,8 @@ export const userService = {
       totalTokensSpent: 0,
       createdAt: now,
       updatedAt: now,
-      hasUsedFreeCollabTrial: false // Default to false
+      hasUsedFreeCollabTrial: false, // Default to false
+      ALLOWFIREBASEADMIN: false // Always false on registration
     };
 
     // Remove undefined fields before sending to Firestore
@@ -66,7 +68,8 @@ export const userService = {
     await setDoc(doc(db, 'users', uid), {
       ...cleanProfile,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      allowedUserIds: [uid],
     });
 
     // Log initial token grant

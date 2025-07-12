@@ -1,0 +1,84 @@
+/* Document deletion animation for Dashboard.tsx */
+.delete-doc-anim {
+  animation: docDeleteAnim 1.2s cubic-bezier(0.4,0,0.2,1) infinite;
+}
+
+@keyframes docDeleteAnim {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  60% {
+    opacity: 1;
+    transform: translate(-50%, 48px) scale(0.95);
+  }
+  80% {
+    opacity: 0.7;
+    transform: translate(-50%, 64px) scale(0.7);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 80px) scale(0.5);
+  }
+}
+
+/* Document creation animation for Dashboard.tsx */
+.create-doc-anim {
+  opacity: 0;
+  transform: scale(0.7) translateY(40px);
+  animation: docCreatePop 1.2s cubic-bezier(0.4,0,0.2,1) forwards;
+}
+@keyframes docCreatePop {
+  0% {
+    opacity: 0;
+    transform: scale(0.7) translateY(40px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.05) translateY(-8px);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(0.98) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.create-doc-line {
+  opacity: 0;
+  transform: translateX(-16px);
+  animation: docLineFadeIn 0.7s cubic-bezier(0.4,0,0.2,1) forwards;
+}
+.create-doc-line:nth-of-type(2) { animation-delay: 0.5s; }
+.create-doc-line:nth-of-type(3) { animation-delay: 0.7s; }
+.create-doc-line:nth-of-type(4) { animation-delay: 0.9s; }
+@keyframes docLineFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+} 
+
+.dashboard-animated-bg {
+  background: linear-gradient(120deg, #f8fafc 0%, #e0e7ff 40%, #f0abfc 100%);
+  background-size: 200% 200%;
+  animation: dashboardBgMove 6s ease-in-out infinite;
+}
+
+@keyframes dashboardBgMove {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+} 

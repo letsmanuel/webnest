@@ -131,7 +131,7 @@ export const collaborationService = {
       bellQueue: [],
       deniedUsers: [],
       isFreeTrial, // Mark session as free trial if applicable
-      pinType // Store the pin type
+      pinType, // Store the pin type
     };
     const docRef = doc(collection(db, 'collaboration_sessions'));
     await setDoc(docRef, sessionData);

@@ -120,6 +120,7 @@ const MarketplaceUpload: React.FC = () => {
         updatedAt: Timestamp.now(),
         authorName: user.displayName || '',
         authorAvatar: user.photoURL || '',
+        allowedUserIds: [user.uid],
       };
       await addDoc(collection(db, 'marketplace'), docData);
       setUploadSuccess('Template uploaded successfully!');
@@ -258,7 +259,7 @@ const MarketplaceUpload: React.FC = () => {
                 </div>
                 <div className="flex gap-4">
                   <button type="button" className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-4 py-2 rounded transition flex-1" onClick={() => setStep(2)}>No, back to edit</button>
-                  <button type="button" className="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded shadow transition flex-1" onClick={async () => { setUploading(true); setUploadSuccess(null); setUploadError(null); try { if (!selectedWebsite || !user) throw new Error('No website or user selected'); const db = getFirestore(); const docData = { websiteId: selectedWebsite.id, authorId: user.uid, name, price: Number(price), tags: tags.split(',').map(t => t.trim()).filter(Boolean), description, preview, source: selectedWebsite.htmlContent, elementsJson: selectedWebsite.elementsJson || null, createdAt: Timestamp.now(), updatedAt: Timestamp.now(), authorName: user.displayName || '', authorAvatar: user.photoURL || '', }; for (let i = 0; i < TEST_DUPLICATE_COUNT; i++) { await addDoc(collection(db, 'marketplace'), { ...docData, name: TEST_DUPLICATE_COUNT > 1 ? `${name} #${i + 1}` : name }); } setUploadSuccess('Your Template is Live in the marketplace'); setStep(4); } catch (err: any) { setUploadError(err.message || 'Upload failed'); } finally { setUploading(false); } }}>Upload</button>
+                  <button type="button" className="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded shadow transition flex-1" onClick={async () => { setUploading(true); setUploadSuccess(null); setUploadError(null); try { if (!selectedWebsite || !user) throw new Error('No website or user selected'); const db = getFirestore(); const docData = { websiteId: selectedWebsite.id, authorId: user.uid, name, price: Number(price), tags: tags.split(',').map(t => t.trim()).filter(Boolean), description, preview, source: selectedWebsite.htmlContent, elementsJson: selectedWebsite.elementsJson || null, createdAt: Timestamp.now(), updatedAt: Timestamp.now(), authorName: user.displayName || '', authorAvatar: user.photoURL || '', allowedUserIds: [user.uid], }; for (let i = 0; i < TEST_DUPLICATE_COUNT; i++) { await addDoc(collection(db, 'marketplace'), { ...docData, name: TEST_DUPLICATE_COUNT > 1 ? `${name} #${i + 1}` : name }); } setUploadSuccess('Your Template is Live in the marketplace'); setStep(4); } catch (err: any) { setUploadError(err.message || 'Upload failed'); } finally { setUploading(false); } }}>Upload</button>
                 </div>
                 {uploadError && <div className="text-red-600 font-semibold mt-4">{uploadError}</div>}
               </div>
